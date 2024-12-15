@@ -1,0 +1,617 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI-Powered Test Generator</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --gradient-text: linear-gradient(135deg, #4F46E5 0%, #7C3AED 50%, #9333EA 100%);
+            --gradient-border: linear-gradient(135deg, rgba(79, 70, 229, 0.4), rgba(147, 51, 234, 0.4));
+            --text-primary: #1E293B;
+            --text-secondary: #64748B;
+            --bg-light: #F8FAFC;
+            --bg-feature: rgba(79, 70, 229, 0.04);
+            --shadow-sm: 0 4px 6px -1px rgba(79, 70, 229, 0.1);
+            --shadow-md: 0 12px 24px -4px rgba(79, 70, 229, 0.15);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Inter', sans-serif;
+        }
+
+        body {
+            background: white;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 3rem 2rem;
+        }
+
+        .container {
+            max-width: 1000px;
+            width: 100%;
+            text-align: center;
+        }
+
+        h1 {
+            font-size: 3.5rem;
+            letter-spacing: -0.02em;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+            font-weight: 700;
+            background: var(--gradient-text);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 1rem;
+        }
+
+        .subtitle {
+            font-size: 1.25rem;
+            color: var(--text-secondary);
+            margin-bottom: 4rem;
+            letter-spacing: -0.01em;
+        }
+
+        .features {
+            display: flex;
+            justify-content: center;
+            gap: 2.5rem;
+            margin-bottom: 4rem;
+        }
+
+        .feature {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.75rem 1.5rem;
+            background: white;
+            border-radius: 12px;
+            color: var(--text-secondary);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            border: 1px solid rgba(79, 70, 229, 0.1);
+            box-shadow: var(--shadow-sm);
+        }
+
+        .feature:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-md);
+            border-color: rgba(79, 70, 229, 0.2);
+        }
+
+        .feature span {
+            font-weight: 600;
+            background: var(--gradient-text);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .drop-zone {
+            width: 100%;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 4rem;
+            background: white;
+            border-radius: 24px;
+            border: 2px dashed rgba(79, 70, 229, 0.2);
+            text-align: center;
+            position: relative;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: var(--shadow-sm);
+        }
+
+        .drop-zone:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-md);
+            border-color: rgba(79, 70, 229, 0.3);
+        }
+
+        .drop-zone.drag-over {
+            transform: scale(1.01);
+            border-color: rgba(79, 70, 229, 0.4);
+            box-shadow: var(--shadow-md);
+            background: rgba(79, 70, 229, 0.02);
+        }
+
+        .drop-zone::before {
+            content: '';
+            position: absolute;
+            inset: -2px;
+            border-radius: 24px;
+            padding: 2px;
+            background: var(--gradient-border);
+            -webkit-mask: 
+                linear-gradient(#fff 0 0) content-box, 
+                linear-gradient(#fff 0 0);
+            -webkit-mask-composite: xor;
+            mask-composite: exclude;
+            opacity: 0;
+            transition: opacity 0.4s ease, transform 0.3s ease;
+            transform: scale(0.98);
+        }
+
+        .drop-zone:hover::before {
+            opacity: 1;
+            transform: scale(1);
+        }
+
+        .upload-icon {
+            width: 48px;
+            height: 48px;
+            margin: 0 auto 1.5rem;
+            color: #4F46E5;
+            opacity: 0.9;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .drop-zone:hover .upload-icon {
+            transform: translateY(-3px);
+            opacity: 1;
+        }
+
+        .drop-text {
+            font-size: 1.25rem;
+            color: var(--text-primary);
+            margin-bottom: 0.75rem;
+            font-weight: 600;
+        }
+
+        .browse-text {
+            color: #6366F1;
+            font-weight: 500;
+            margin-bottom: 1.5rem;
+        }
+
+        .supported-formats {
+            color: var(--text-secondary);
+            font-size: 0.875rem;
+            opacity: 0.8;
+        }
+
+        .processing {
+            display: none;
+            max-width: 800px;
+            margin: 2rem auto;
+        }
+
+        .progress-bar {
+            height: 6px;
+            background: #F1F5F9;
+            border-radius: 3px;
+            overflow: hidden;
+            margin-bottom: 2rem;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: var(--gradient-text);
+            width: 0%;
+            transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .steps {
+            text-align: left;
+        }
+
+        .step {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            padding: 1rem 1.25rem;
+            color: var(--text-secondary);
+            margin-bottom: 0.5rem;
+            border-radius: 10px;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            background: white;
+            border: 1px solid rgba(79, 70, 229, 0.1);
+        }
+
+        .step.active {
+            background: var(--bg-feature);
+            border-color: rgba(79, 70, 229, 0.2);
+            transform: translateX(4px);
+            color: #4F46E5;
+            font-weight: 500;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>AI-Powered Test Generator</h1>
+        <p class="subtitle">Transform requirements into comprehensive test suites</p>
+
+        <div class="features">
+            <div class="feature">
+                <span>Smart Analysis</span>
+            </div>
+            <div class="feature">
+                <span>Fast Process</span>
+            </div>
+            <div class="feature">
+                <span>Complete Coverage</span>
+            </div>
+            <div class="feature">
+                <span>Reliable Tests</span>
+            </div>
+        </div>
+
+        <div class="drop-zone" id="dropZone">
+            <div class="upload-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M7 10v-3a5 5 0 0 1 10 0v3" />
+                    <path d="M12 14v7" />
+                    <path d="M9 17l3-3 3 3" />
+                </svg>
+            </div>
+            <h3 class="drop-text">Drag & drop your document</h3>
+            <p class="browse-text">or click to browse from your computer</p>
+            <p class="supported-formats">Currently supporting PDF files only</p>
+            <input type="file" id="fileInput" hidden accept=".pdf">
+        </div>
+
+        <div class="processing" id="processing">
+            <div class="progress-bar">
+                <div class="progress-fill" id="progressFill"></div>
+            </div>
+            <div class="steps">
+                <div class="step" data-step="1">
+                    <span>Analyzing requirements document</span>
+                </div>
+                <div class="step" data-step="2">
+                    <span>Generating test cases</span>
+                </div>
+                <div class="step" data-step="3">
+                    <span>Creating test documentation</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+
+<script>
+    const dropZone = document.getElementById('dropZone');
+    const fileInput = document.getElementById('fileInput');
+    const processing = document.getElementById('processing');
+    const progressFill = document.getElementById('progressFill');
+
+    // Handle click to browse
+    dropZone.addEventListener('click', () => {
+        fileInput.click();
+    });
+
+    // Handle file selection
+    fileInput.addEventListener('change', handleFileSelect);
+
+    // Handle drag and drop events
+    dropZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropZone.classList.add('drag-over');
+    });
+
+    dropZone.addEventListener('dragleave', (e) => {
+        e.preventDefault();
+        dropZone.classList.remove('drag-over');
+    });
+
+    dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropZone.classList.remove('drag-over');
+        const files = e.dataTransfer.files;
+        handleFiles(files);
+    });
+
+    function handleFileSelect(e) {
+        const files = e.target.files;
+        handleFiles(files);
+    }
+
+    async function handleFiles(files) {
+        if (files.length === 0) return;
+
+        const file = files[0];
+        const allowedTypes = ['application/pdf'];
+
+        if (!allowedTypes.includes(file.type)) {
+            showErrorMessage('Please upload a PDF file. Other formats are not supported yet.');
+            return;
+        }
+
+        // Show processing UI
+        dropZone.style.display = 'none';
+        processing.style.display = 'block';
+
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+
+            // Start progress animation
+            const progressInterval = startProgressAnimation();
+
+            const response = await fetch('/upload', {
+                method: 'POST',
+                body: formData
+            });
+
+            // Clear the progress interval
+            clearInterval(progressInterval);
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.detail || 'Upload failed. Please try again.');
+            }
+
+            const result = await response.json();
+
+            // Show success message
+            showSuccessMessage(result);
+
+            // Download Excel file automatically
+            if (result.excel_download_url) {
+                window.location.href = result.excel_download_url;
+            }
+
+        } catch (error) {
+            console.error('Upload error:', error);
+            let errorMessage = error.message;
+            
+            // Handle specific error cases
+            if (errorMessage.includes('broken document')) {
+                errorMessage = 'The PDF appears to be corrupted. Please check the file and try again.';
+            } else if (errorMessage.includes('Failed to convert')) {
+                errorMessage = 'Unable to process the PDF. Please ensure it\'s not password protected and try again.';
+            }
+            
+            showErrorMessage(errorMessage);
+        } finally {
+            resetUI();
+        }
+    }
+
+    function startProgressAnimation() {
+        let progress = 0;
+        const steps = document.querySelectorAll('.step');
+        
+        return setInterval(() => {
+            // Slower progress to show realistic processing time
+            progress += 0.5;
+            if (progress > 95) progress = 95; // Keep at 95% until complete
+            progressFill.style.width = `${progress}%`;
+
+            // Update active step
+            if (progress < 33) {
+                updateActiveStep(steps, 0);
+            } else if (progress < 66) {
+                updateActiveStep(steps, 1);
+            } else {
+                updateActiveStep(steps, 2);
+            }
+        }, 100);
+    }
+
+    function showSuccessMessage(result) {
+        // Create success message container
+        const successMessage = document.createElement('div');
+        successMessage.className = 'success-message';
+        successMessage.innerHTML = `
+            <div class="success-content">
+                <svg class="checkmark" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 52 52">
+                    <circle class="checkmark__circle" cx="26" cy="26" r="25" fill="none"/>
+                    <path class="checkmark__check" fill="none" d="M14.1 27.2l7.1 7.2 16.7-16.8"/>
+                </svg>
+                <h3>Processing Complete!</h3>
+                <p>Your test cases have been generated successfully.</p>
+                <div class="download-links">
+                    <a href="${result.excel_download_url}" class="download-button">Download Excel</a>
+                    <a href="${result.json_download_url}" class="download-button secondary">Download JSON</a>
+                </div>
+            </div>
+        `;
+        document.querySelector('.container').appendChild(successMessage);
+
+        // Add success message styles
+        const style = document.createElement('style');
+        style.textContent = `
+            .success-message {
+                position: fixed;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                background: white;
+                padding: 2rem;
+                border-radius: 16px;
+                box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+                text-align: center;
+                z-index: 1000;
+            }
+            .success-content {
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                gap: 1rem;
+            }
+            .checkmark {
+                width: 56px;
+                height: 56px;
+                border-radius: 50%;
+                stroke-width: 2;
+                stroke: #4F46E5;
+                stroke-miterlimit: 10;
+                animation: fill .4s ease-in-out .4s forwards, scale .3s ease-in-out .9s both;
+            }
+            .checkmark__circle {
+                stroke-dasharray: 166;
+                stroke-dashoffset: 166;
+                stroke-width: 2;
+                stroke-miterlimit: 10;
+                stroke: #4F46E5;
+                fill: none;
+                animation: stroke 0.6s cubic-bezier(0.65, 0, 0.45, 1) forwards;
+            }
+            .checkmark__check {
+                transform-origin: 50% 50%;
+                stroke-dasharray: 48;
+                stroke-dashoffset: 48;
+                animation: stroke 0.3s cubic-bezier(0.65, 0, 0.45, 1) 0.8s forwards;
+            }
+            .download-links {
+                display: flex;
+                gap: 1rem;
+                margin-top: 1rem;
+            }
+            .download-button {
+                padding: 0.75rem 1.5rem;
+                border-radius: 8px;
+                background: var(--gradient-text);
+                color: white;
+                text-decoration: none;
+                font-weight: 500;
+                transition: transform 0.2s ease;
+            }
+            .download-button.secondary {
+                background: white;
+                border: 1px solid #4F46E5;
+                color: #4F46E5;
+            }
+            .download-button:hover {
+                transform: translateY(-2px);
+            }
+            @keyframes stroke {
+                100% { stroke-dashoffset: 0; }
+            }
+            @keyframes scale {
+                0%, 100% { transform: none; }
+                50% { transform: scale3d(1.1, 1.1, 1); }
+            }
+            @keyframes fill {
+                100% { box-shadow: inset 0 0 0 30px #4F46E5; }
+            }
+        `;
+        document.head.appendChild(style);
+
+        // Remove success message after 10 seconds
+        setTimeout(() => {
+            successMessage.remove();
+        }, 10000);
+    }
+
+    function showErrorMessage(message) {
+        const errorMessage = document.createElement('div');
+        errorMessage.className = 'error-message';
+        errorMessage.innerHTML = `
+            <div class="error-content">
+                <svg class="error-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                    <circle cx="12" cy="12" r="10" />
+                    <line x1="15" y1="9" x2="9" y2="15" />
+                    <line x1="9" y1="9" x2="15" y2="15" />
+                </svg>
+                <h3>Processing Failed</h3>
+                <p>${message}</p>
+                <div class="error-actions">
+                    <button class="retry-btn" onclick="this.parentElement.parentElement.parentElement.remove()">Try Again</button>
+                    <button class="close-btn" onclick="this.parentElement.parentElement.parentElement.remove()">Close</button>
+                </div>
+            </div>
+        `;
+        document.querySelector('.container').appendChild(errorMessage);
+
+        // Update error message styles to include new buttons
+        const style = document.createElement('style');
+        style.textContent = `
+            .error-message {
+                position: fixed;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                background: white;
+                padding: 2rem;
+                border-radius: 16px;
+                box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+                text-align: center;
+                z-index: 1000;
+            }
+            .error-content {
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                gap: 1rem;
+            }
+            .error-icon {
+                width: 48px;
+                height: 48px;
+                stroke: #EF4444;
+                stroke-width: 2;
+            }
+            .error-message button {
+                padding: 0.75rem 1.5rem;
+                border-radius: 8px;
+                background: #EF4444;
+                color: white;
+                border: none;
+                cursor: pointer;
+                font-weight: 500;
+                transition: transform 0.2s ease;
+            }
+            .error-message button:hover {
+                transform: translateY(-2px);
+            }
+            .error-actions {
+                display: flex;
+                gap: 1rem;
+                margin-top: 1rem;
+            }
+            .retry-btn {
+                padding: 0.75rem 1.5rem;
+                border-radius: 8px;
+                background: var(--gradient-text);
+                color: white;
+                border: none;
+                cursor: pointer;
+                font-weight: 500;
+                transition: transform 0.2s ease;
+            }
+            .close-btn {
+                padding: 0.75rem 1.5rem;
+                border-radius: 8px;
+                background: white;
+                color: #4F46E5;
+                border: 1px solid #4F46E5;
+                cursor: pointer;
+                font-weight: 500;
+                transition: transform 0.2s ease;
+            }
+            .retry-btn:hover, .close-btn:hover {
+                transform: translateY(-2px);
+            }
+        `;
+        document.head.appendChild(style);
+    }
+
+    function updateActiveStep(steps, activeIndex) {
+        steps.forEach((step, index) => {
+            if (index === activeIndex) {
+                step.classList.add('active');
+            } else {
+                step.classList.remove('active');
+            }
+        });
+    }
+
+    function resetUI() {
+        processing.style.display = 'none';
+        dropZone.style.display = 'block';
+        progressFill.style.width = '0%';
+        fileInput.value = '';
+        document.querySelectorAll('.step').forEach(step => {
+            step.classList.remove('active');
+        });
+    }
+</script>
+
+</html>

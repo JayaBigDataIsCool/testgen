@@ -1,0 +1,38 @@
+Strictly use gemini-2.0-flash-exp model - use the code as reference @reference.py because its working convert_floats_to_decimals
+
+Requirements:
+hey this is my usecase where use the other code i have in reference.py and create a new code for the same.
+the requiirement is to take the PDF or Word file thats uploaded from UI to do Intelligent document processing, extract everything and return the data in JSON format.
+If the PDF is uploaded then no issues but if word doc is uploaded then we need to convert it to PDF first.
+Create this as FASTAPI Python code and have react frontend for the same.
+I plan to deploy this in a container lke azure or aws or google cloud or local so make sure everything from FAST API code and the react code is in the same package
+I read about the react code can be compiled and put into static folder of fast api so that it can be served as a single page application.
+I have the reference code in reference.py and i want to use that code to create a new code for the same.
+Use google gemini flash model mentioned in the reference code to do the intelligent document processing.
+Also use all the syntax and everything like the techniques from the reference code.
+create .env file and put all the environment variables in it.
+make the UI very very looking good with some cool looking graohics and stuff like apple.com 
+should look awesome and beautiful and should be very easy to use.
+When document is uploaded it should do some great animation and finally the user should be able to download the XLS file for the test case generated
+The major help i need is i want you to use LLM to generate the test cases for the input requirements document
+The design is like do IDP by converting each page into a JPEG file and document extraction is done by LLM.
+finally all the pages need to be consolidated into 1 Json for all the pages
+Important thing is we are generating the test cases for the input requirements document so the key challenge is we may have some workflow diagrams as images in the document which will be spanning across multiple pages - So i need a very robust design to handle this.
+I want the entire context of all the pages to be extracted and consolidated into a single JSON file and also all the images need to be sent to the final LLM call for generating various test cases
+The test cases should involve all combinations of the all the testing needs
+May be do multiple LLM calls to generate the test cases and then consolidate the results into a single JSON file
+Finally i need to write the XLSX and user should be able to download it from UI
+
+
+
+ok some decent success but just a start - i need a major overhaul - First of all big relief as something is working - You are doing fundamentals ok - The approach is convert each page of PDF to an Image and do some detailed OCR extraction with the LLM for each page - get some very comprehensive details from each page for writing test cases - We may not need the document classification step also
+What we need is actually consolidate all the pages extraction finally into a Single JSON and send it to LLM multiple times to generate test cases - first time unit test cases, and second LLM call for integration test cases - Finally write the XLSX file for the user to download 
+
+
+As of now its hanging for very long time - I would like the test cases are generated in the same Excel Tab with seperators and headers for each section of test cases than lot of tabs for each test case - Be extremely intelligent in doing a big big ramp up in generating the test cases
+One problem we may see is there may be some workflow diagrams as images in the document which will be spanning across multiple pages - So we need a very robust design to handle this.
+
+
+currently the code is working and doing some decent job - I dont want you to mess up anything thats aleady working
+
+ The quality of the test cases is very very bad - you can call LLM multiple times for better OCR extraction and better comprehensive detailed test cases generation and also highest accuracy anc quality of the test cases - As of now i see its very very poor See its menitoned as UNIT TEST CASES at the top but down you see INTEGRATION TEST CASES not highlighted with colors - Major major issues with qualoty of test cases - need more accurate OCR extraction first for each page and also try and get the workflow diagrams interdependence across pages - so need a better architecture to handle all these - as of now the code just works so dont screw up anything but make some major upgrade to the quality of test extraction and quality of test results generation - you can keep caling LLM as many of times you need
