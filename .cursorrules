@@ -1,4 +1,6 @@
-Strictly use gemini-2.0-flash-exp model 
+Strictly use gemini-2.0-flash-exp model
+
+prompts must be very generic and not specific to any particular project or product
 
 Dont change the model or the way the Image is handled - thats good
 

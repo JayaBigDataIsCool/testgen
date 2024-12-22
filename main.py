@@ -1,18 +1,11 @@
 import os
 import json
-import base64
 import logging
-import shutil
 from datetime import datetime
-from typing import List, Dict, Any
-from decimal import Decimal
 from pathlib import Path
-from io import BytesIO
-import time
-
+from typing import Dict, List, Tuple
 import fitz
-from PIL import Image
-from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
 from google import genai
@@ -20,13 +13,18 @@ from google.genai.types import GenerateContentConfig
 import pandas as pd
 from dotenv import load_dotenv
 import re
+from openpyxl.styles import PatternFill, Font, Alignment
+from openpyxl.utils import get_column_letter
+import uuid
+import shutil
+import aiofiles
 
-from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
+# Constants
+MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
+MAX_PAGES = 100
+ALLOWED_EXTENSIONS = {".pdf"}
 
-# Load environment variables
-load_dotenv()
-
-# Configure logging
+# Set up logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -35,852 +33,728 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Initialize FastAPI app
-app = FastAPI(title="Test Case Generator")
-
-# Create necessary directories
-UPLOAD_FOLDER = Path(os.getenv('UPLOAD_FOLDER', 'uploads'))
-OUTPUT_FOLDER = Path(os.getenv('OUTPUT_FOLDER', 'outputs'))
-STATIC_FOLDER = Path('static')
-
-for folder in [UPLOAD_FOLDER, OUTPUT_FOLDER, STATIC_FOLDER]:
-    folder.mkdir(exist_ok=True)
-
-# Mount static files
+app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-# Serve index.html at root
-@app.get("/")
-async def read_root():
-    return FileResponse('static/index.html')
+# Load environment variables
+load_dotenv()
 
-# Add this near the top of the file with other constants/configurations
-extraction_prompt = """Analyze this page from a requirements document with extreme detail and precision.
-Extract every possible detail that could be relevant for testing, focusing on:
+# Initialize folders
+BASE_UPLOAD_DIR = Path('uploads')
+BASE_OUTPUT_DIR = Path('outputs')
+BASE_UPLOAD_DIR.mkdir(exist_ok=True)
+BASE_OUTPUT_DIR.mkdir(exist_ok=True)
 
-1. Requirements Analysis:
-   - Functional requirements
-   - Business rules
-   - System behaviors
-   - User interactions
-   - Data processing rules
-   - Validation criteria
-   - Error scenarios
-   - Dependencies
+# Update the extraction prompt for better requirement coverage
+extraction_prompt = """Analyze this diagram/page in detail and extract ALL testable requirements.
+Focus on identifying:
 
-2. Technical Details:
-   - System components
-   - Integration points
-   - Data flows
-   - APIs and interfaces
-   - Security requirements
-   - Performance criteria
-   - Infrastructure needs
+1. Business Rules & Logic
+   - Data validation rules
+   - Business constraints
+   - Calculation logic
+   - Processing rules
+   - State transitions
 
-3. Business Logic:
-   - Process flows
-   - Decision points
-   - Calculations
-   - Business rules
-   - Validation rules
-   - Authorization levels
-   - Time-based conditions
+2. User Workflows
+   - User actions and inputs
+   - System responses
+   - Navigation paths
+   - Error handling
+   - Success scenarios
 
-4. Data Requirements:
-   - Data structures
+3. Data Requirements
+   - Required fields
    - Field validations
    - Data relationships
    - Data transformations
-   - Storage requirements
-   - Data integrity rules
 
-5. User Interface:
-   - Screen elements
-   - User inputs
-   - Display formats
-   - Navigation flows
-   - Error messages
-   - User permissions
+4. System Behaviors
+   - Processing steps
+   - Integration points
+   - Response handling
+   - Error conditions
+   - Performance criteria
 
-6. Integration Points:
-   - External systems
-   - APIs
-   - Data exchange formats
-   - Communication protocols
-   - Error handling
-
-7. Visual Elements:
-   - Diagrams
-   - Tables
-   - Charts
-   - Screen layouts
-   - Report formats
-
-Return a structured JSON with:
+Return ONLY a JSON in this format:
 {
     "page_number": <number>,
-    "content_type": "text|diagram|mixed",
-    "requirements": {
-        "functional": [
-            {
-                "id": "REQ_F_X",
-                "category": "business_logic|user_interaction|data_processing",
-                "description": "detailed description",
-                "validation_rules": [],
-                "error_scenarios": [],
-                "dependencies": []
-            }
-        ],
-        "technical": [],
-        "business_rules": [],
-        "data_requirements": [],
-        "ui_elements": [],
-        "integration_points": [],
-        "visual_elements": []
-    },
-    "relationships": {
-        "dependencies": [],
-        "integrations": [],
-        "data_flows": []
-    },
-    "notes": "any additional observations"
-}
-
-Be extremely thorough and precise in the extraction. Include all details that could be relevant for testing."""
-
-analysis_prompt = """Analyze these requirements and return ONLY a JSON object in this exact format:
-{
-    "system_analysis": {
-        "components": [
-            {
-                "name": "component_name",
-                "type": "ui|service|database|integration",
-                "description": "detailed description",
-                "interactions": ["interaction1", "interaction2"],
-                "requirements": ["req1", "req2"]
-            }
-        ],
-        "workflows": [
-            {
-                "name": "workflow_name",
-                "steps": ["step1", "step2"],
-                "requirements": ["req1", "req2"]
-            }
-        ],
-        "data_flows": [
-            {
-                "source": "component_name",
-                "destination": "component_name",
-                "data_type": "type",
-                "requirements": ["req1", "req2"]
-            }
-        ],
-        "requirements": {
-            "functional": [
-                {
-                    "id": "REQ_F_X",
-                    "description": "description",
-                    "validation_rules": ["rule1", "rule2"],
-                    "error_scenarios": ["error1", "error2"]
-                }
-            ],
-            "technical": [],
-            "security": [],
-            "performance": []
-        }
-    }
-}
-
-Do not include any explanatory text, only return the JSON object."""
-
-unit_test_prompt = """Generate comprehensive unit test cases covering:
-
-1. Functional Correctness
-   - Core functionality verification
-   - Business logic validation
-   - Calculation accuracy
-   - Data transformations
-   - State management
-   - Status transitions
-
-2. Input Validation
-   - Valid input scenarios
-   - Invalid input handling
-   - Boundary conditions
-   - Data type validation
-   - Format validation
-   - Required field validation
-
-3. Error Handling
-   - Expected error conditions
-   - Unexpected error scenarios
-   - Resource unavailability
-   - External system failures
-   - Timeout scenarios
-   - Recovery mechanisms
-
-Return ONLY a JSON object with extremely detailed test cases in this format:
-{
-    "unit_test_cases": [
+    "requirements": [
         {
-            "id": "UT_001",
-            "component": "specific component name",
-            "function": "specific function name",
-            "category": "input_validation|business_logic|error_handling|security|data_processing",
-            "description": "detailed test description",
-            "preconditions": ["detailed condition 1", "detailed condition 2"],
-            "test_steps": ["specific step 1", "specific step 2"],
-            "expected_results": ["specific result 1", "specific result 2"],
-            "priority": "high|medium|low",
-            "requirements_covered": ["REQ_1", "REQ_2"],
-            "test_data": {"input": "sample input", "expected": "expected output"},
-            "validation_criteria": ["specific criteria 1", "specific criteria 2"],
-            "error_scenarios": ["specific error scenario 1", "specific error scenario 2"]
+            "req_id": "REQ_P<page_number>_<sequence>",
+            "type": "business_rule|workflow|validation|system_behavior",
+            "category": "critical|major|normal",
+            "description": "detailed requirement description",
+            "conditions": [
+                "specific condition 1",
+                "specific condition 2"
+            ],
+            "business_rules": [
+                "specific rule 1",
+                "specific rule 2"
+            ],
+            "validation_criteria": [
+                "specific validation 1",
+                "specific validation 2"
+            ],
+            "expected_behavior": "detailed expected outcome"
         }
     ]
 }"""
 
-integration_test_prompt = """Generate comprehensive integration test cases focusing on:
+# Update the test case generation prompt for more comprehensive coverage
+test_case_generation_prompt = """Generate detailed test cases for these requirements. For each requirement:
 
-1. End-to-End Workflows
-   - Complete business processes
-   - Cross-component interactions
-   - Data flow validations
-   - State transitions
-   - Process sequences
+1. Core Functionality Tests
+   - Happy path scenarios
+   - Alternative flows
+   - Edge cases
+   - Boundary conditions
+   - Performance scenarios
 
-2. Interface Testing
-   - API interactions
-   - Data exchange formats
-   - Communication protocols
-   - Error handling
-   - Response validation
+2. Validation Tests
+   - Input validation
+   - Data format validation
+   - Business rule validation
+   - Cross-field validations
+   - Mandatory field checks
 
-3. System Integration
-   - Component dependencies
-   - External system integration
-   - Data consistency
-   - Transaction management
+3. Error Handling Tests
+   - Invalid inputs
+   - System errors
+   - Integration failures
+   - Timeout scenarios
    - Recovery scenarios
 
-Return ONLY a JSON object in this format:
+4. Integration Tests
+   - API interactions
+   - Database operations
+   - External system integrations
+   - State transitions
+   - Data flow validations
+
+5. Non-Functional Tests
+   - Performance thresholds
+   - Load conditions
+   - Security scenarios
+   - Accessibility checks
+   - Usability aspects
+
+For EACH requirement, generate AT LEAST 12-15 test cases per category above.
+Return ONLY a JSON in this format:
 {
-    "integration_test_cases": [
+    "test_cases": [
         {
-            "id": "IT_001",
-            "scenario": "detailed test scenario",
-            "description": "comprehensive test description",
-            "components_involved": ["component 1", "component 2"],
-            "preconditions": ["detailed condition 1", "detailed condition 2"],
-            "test_steps": ["specific step 1", "specific step 2"],
-            "expected_results": ["specific result 1", "specific result 2"],
+            "test_id": "TC_<req_id>_<sequence>",
+            "requirement_id": "<req_id>",
+            "category": "functional|validation|error|integration|non_functional",
             "priority": "high|medium|low",
-            "requirements_covered": ["REQ_1", "REQ_2"],
-            "data_flow": ["data flow step 1", "data flow step 2"],
-            "validation_points": ["validation 1", "validation 2"]
-        }
-    ]
-}"""
-
-performance_test_prompt = """Generate comprehensive performance test cases focusing on:
-
-1. Response Time Testing
-   - API response times
-   - Page load times
-   - Transaction processing times
-   - Batch processing performance
-
-2. Load Testing
-   - Concurrent user scenarios
-   - Peak load conditions
-   - Sustained load testing
-   - Resource utilization
-
-3. Stress Testing
-   - System behavior at peak loads
-   - Recovery testing
-   - Resource exhaustion scenarios
-   - Failover testing
-
-Return ONLY a JSON object in this format:
-{
-    "performance_test_cases": [
-        {
-            "id": "PT_001",
-            "category": "response_time|load|stress|scalability|volume",
-            "scenario": "detailed performance scenario",
-            "description": "comprehensive test description",
-            "preconditions": ["system state", "data requirements"],
-            "test_steps": ["specific step 1", "specific step 2"],
-            "metrics": ["response_time", "throughput", "resource_usage"],
-            "thresholds": {
-                "expected_response_time": "value",
-                "max_acceptable_time": "value",
-                "throughput": "value",
-                "error_rate": "value"
+            "title": "descriptive test case title",
+            "preconditions": [
+                "precondition 1",
+                "precondition 2"
+            ],
+            "test_steps": [
+                "detailed step 1",
+                "detailed step 2"
+            ],
+            "expected_results": [
+                "specific expected result 1",
+                "specific expected result 2"
+            ],
+            "test_data": {
+                "input": "specific test input data",
+                "expected_output": "expected output data"
             },
-            "monitoring_points": ["metric 1", "metric 2"],
-            "tools_required": ["tool 1", "tool 2"],
-            "priority": "high|medium|low",
-            "requirements_covered": ["REQ_1", "REQ_2"]
+            "validation_points": [
+                "specific validation point 1",
+                "specific validation point 2"
+            ]
         }
     ]
 }"""
 
-def init_gemini():
-    """Initialize Gemini with API key"""
-    api_key = os.getenv('GEMINI_API_KEY')
+def process_page(client: genai.Client, image_path: Path, page_number: int) -> Dict:
+    """Process single page and generate test cases immediately"""
+    try:
+        logger.info(f"Starting processing for page {page_number}")
+        
+        with open(image_path, 'rb') as img_file:
+            img_data = img_file.read()
+        
+        logger.info(f"Page {page_number}: Extracting requirements...")
+        # Extract requirements
+        response = client.models.generate_content(
+            model="gemini-2.0-flash-exp",
+            contents=[{
+                "role": "user", 
+                "parts": [
+                    {"text": extraction_prompt},
+                    {"inline_data": {"mime_type": "image/jpeg", "data": img_data}}
+                ]
+            }],
+            config=GenerateContentConfig(
+                temperature=0.1,
+                max_output_tokens=8000,
+                top_p=0.8,
+                top_k=40
+            )
+        )
+        
+        requirements = extract_json(response.text) if response and response.text else {}
+        
+        if not requirements.get("requirements"):
+            logger.warning(f"Page {page_number}: No requirements extracted")
+            return {"page_number": page_number, "requirements": [], "test_cases": []}
+            
+        logger.info(f"Page {page_number}: Found {len(requirements.get('requirements', []))} requirements")
+        
+        # Generate test cases immediately for this page
+        logger.info(f"Page {page_number}: Generating test cases...")
+        test_cases = generate_test_cases(client, requirements, page_number)
+        logger.info(f"Page {page_number}: Generated {len(test_cases)} test cases")
+        
+        result = {
+            "page_number": page_number,
+            "requirements": requirements.get("requirements", []),
+            "test_cases": test_cases
+        }
+        
+        logger.info(f"Page {page_number}: Processing completed")
+        return result
+        
+    except Exception as e:
+        logger.error(f"Error processing page {page_number}: {str(e)}", exc_info=True)
+        return {"page_number": page_number, "requirements": [], "test_cases": []}
+
+def generate_test_cases(client: genai.Client, requirements: Dict, page_number: int) -> List[Dict]:
+    """Generate comprehensive test cases for a single page"""
+    try:
+        prompt = f"""Based on these requirements:
+        {json.dumps(requirements, indent=2)}
+        
+        Generate HIGH-QUALITY test cases that ensure COMPLETE coverage. Each test case must be:
+        1. Business-Focused
+           - Validates specific business rules
+           - Covers business scenarios
+           - Ensures business value
+        
+        2. Quality-Driven
+           - Detailed test steps
+           - Specific test data
+           - Clear validation points
+           - Covers edge cases
+        
+        Return ONLY a JSON with test cases:
+        {{
+            "test_cases": [
+                {{
+                    "id": "TC_P{page_number}_<number>",
+                    "priority": "P1|P2|P3",
+                    "description": "detailed test description",
+                    "requirements_covered": ["REQ_P{page_number}_X"],
+                    "preconditions": ["specific condition"],
+                    "test_steps": [
+                        {{
+                            "step": 1,
+                            "action": "specific action",
+                            "data": "test data",
+                            "expected_result": "detailed expected result"
+                        }}
+                    ],
+                    "validation_points": [
+                        {{
+                            "what": "what to validate",
+                            "criteria": "acceptance criteria"
+                        }}
+                    ]
+                }}
+            ]
+        }}"""
+
+        logger.info(f"Page {page_number}: Calling LLM for test case generation...")
+        response = client.models.generate_content(
+            model="gemini-2.0-flash-exp",
+            contents=[{"role": "user", "parts": [{"text": prompt}]}],
+            config=GenerateContentConfig(
+                temperature=0.2,
+                max_output_tokens=8000,
+                top_p=0.9,
+                top_k=40
+            )
+        )
+        
+        result = extract_json(response.text) if response and response.text else {}
+        test_cases = result.get("test_cases", [])
+        logger.info(f"Page {page_number}: Test case generation completed")
+        return test_cases
+        
+    except Exception as e:
+        logger.error(f"Error generating test cases for page {page_number}: {str(e)}", exc_info=True)
+        return []
+
+def extract_json(text: str) -> Dict:
+    """Extract JSON from text with robust error handling"""
+    try:
+        # First try direct JSON parsing
+        try:
+            return json.loads(text)
+        except:
+            pass
+        
+        # Clean up the text
+        text = re.sub(r'```json|```|\n|\r', '', text)
+        text = text.strip()
+        
+        # Find JSON content
+        json_pattern = r'\{.*\}'
+        match = re.search(json_pattern, text, re.DOTALL)
+        
+        if match:
+            json_str = match.group(0)
+            return json.loads(json_str)
+            
+        return {}
+            
+    except Exception as e:
+        logger.error(f"JSON extraction failed: {str(e)}")
+        return {}
+
+@app.get("/")
+async def read_root():
+    """Serve the main page"""
+    return FileResponse('static/index.html')
+
+@app.post("/upload")
+async def upload_file(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...)
+):
+    """Handle file upload with improved validation and processing"""
+    try:
+        # Clean up old files first
+        cleanup_old_files()
+        
+        # Generate session ID first
+        session_id = str(uuid.uuid4())
+        logger.info(f"Starting new upload session: {session_id}")
+        
+        # Create session folders
+        session_upload_dir, session_output_dir = create_session_folders(session_id)
+        
+        # Validate file extension first
+        file_ext = Path(file.filename).suffix.lower()
+        if file_ext not in ALLOWED_EXTENSIONS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported file type. Allowed types: {', '.join(ALLOWED_EXTENSIONS)}"
+            )
+
+        # Save file first
+        safe_filename = re.sub(r'[^a-zA-Z0-9._-]', '', file.filename)
+        file_path = session_upload_dir / safe_filename
+        
+        file_content = await file.read()
+        
+        # Validate file size after reading
+        if len(file_content) > MAX_FILE_SIZE:
+            cleanup_session_files(session_id)
+            raise HTTPException(
+                status_code=413,
+                detail=f"File too large. Maximum size is {MAX_FILE_SIZE/1024/1024}MB"
+            )
+        
+        # Write file
+        with open(file_path, 'wb') as f:
+            f.write(file_content)
+            
+        logger.info(f"File saved: {file_path}")
+            
+        # Start processing in background
+        background_tasks.add_task(
+            process_document,
+            file_path,
+            session_id
+        )
+        
+        return JSONResponse({
+            "message": "Upload successful. Processing started.",
+            "session_id": session_id,
+            "status_url": f"/status/{session_id}"
+        })
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Upload error: {str(e)}", exc_info=True)
+        if 'session_id' in locals():
+            cleanup_session_files(session_id)
+        raise HTTPException(status_code=500, detail="Upload failed")
+
+@app.get("/download/{session_id}/excel/{filename}")
+async def download_excel(session_id: str, filename: str):
+    """Download generated Excel file"""
+    try:
+        file_path = BASE_OUTPUT_DIR / session_id / filename
+        if not file_path.exists():
+            raise HTTPException(status_code=404, detail="Excel file not found")
+            
+        # Force file download with proper headers
+        headers = {
+            'Content-Disposition': f'attachment; filename="test_cases.xlsx"'
+        }
+            
+        return FileResponse(
+            path=file_path,
+            headers=headers,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+    except Exception as e:
+        logger.error(f"Error downloading Excel: {str(e)}")
+        raise HTTPException(status_code=500, detail="Download failed")
+
+@app.get("/download/{session_id}/json/{filename}")
+async def download_json(session_id: str, filename: str):
+    """Download generated JSON file"""
+    try:
+        file_path = BASE_OUTPUT_DIR / session_id / filename
+        if not file_path.exists():
+            raise HTTPException(status_code=404, detail="JSON file not found")
+            
+        # Force file download with proper headers
+        headers = {
+            'Content-Disposition': f'attachment; filename="test_cases.json"'
+        }
+            
+        return FileResponse(
+            path=file_path,
+            headers=headers,
+            media_type="application/json"
+        )
+    except Exception as e:
+        logger.error(f"Error downloading JSON: {str(e)}")
+        raise HTTPException(status_code=500, detail="Download failed")
+
+def init_gemini() -> genai.Client:
+    """Initialize Gemini client"""
+    api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
-        raise ValueError("Gemini API key not found in environment variables")
-    logger.info("Initializing Gemini client")
+        raise ValueError("GEMINI_API_KEY environment variable not set")
     return genai.Client(api_key=api_key)
 
-def pdf_to_images(pdf_path: Path) -> List[Path]:
-    """Convert PDF pages to images with high quality"""
+def pdf_to_images(pdf_path: Path, output_dir: Path) -> List[Path]:
+    """Convert PDF pages to images"""
     try:
         logger.info(f"Converting PDF to images: {pdf_path}")
         image_paths = []
         
-        pdf_document = fitz.open(str(pdf_path))
-        logger.info(f"PDF opened successfully, pages: {pdf_document.page_count}")
-            
-        for page_number in range(pdf_document.page_count):
-            logger.info(f"Processing page {page_number + 1}")
-            page = pdf_document[page_number]
-            
-            zoom = 4  # Higher zoom for better quality
-            mat = fitz.Matrix(zoom, zoom)
-            pix = page.get_pixmap(matrix=mat, alpha=False)
-            
-            image_path = OUTPUT_FOLDER / f"page_{page_number + 1}.jpg"
-            pix.save(str(image_path), output="jpeg", jpg_quality=95)
-            
-            file_size_kb = os.path.getsize(image_path) / 1024
-            logger.info(f"Image size: {file_size_kb:.2f}KB")
-            
-            image_paths.append(image_path)
-            logger.info(f"Successfully converted page {page_number + 1}")
-        
-        pdf_document.close()
-        logger.info(f"Successfully converted {len(image_paths)} pages to images")
+        with fitz.open(str(pdf_path)) as pdf_document:
+            for page_number in range(pdf_document.page_count):
+                page = pdf_document[page_number]
+                zoom = 2
+                mat = fitz.Matrix(zoom, zoom)
+                pix = page.get_pixmap(matrix=mat, alpha=False)
+                
+                image_path = output_dir / f"page_{page_number + 1}.jpg"
+                pix.save(str(image_path), output="jpeg", jpg_quality=85)
+                
+                image_paths.append(image_path)
+                
         return image_paths
         
     except Exception as e:
         logger.error(f"Error converting PDF to images: {str(e)}")
-        raise HTTPException(status_code=500, detail="Failed to convert PDF to images")
-
-def extract_page_content(client: genai.Client, image_paths: List[Path], batch_size: int = 1) -> List[Dict]:
-    """Extract content from each page with enhanced OCR capabilities"""
-    try:
-        logger.info("Starting content extraction from pages")
-        all_page_content = []
-        
-        # Process one page at a time for better reliability
-        for page_num, img_path in enumerate(image_paths, 1):
-            logger.info(f"Processing page {page_num}")
-            
-            try:
-                with open(img_path, 'rb') as img_file:
-                    img_bytes = img_file.read()
-                    parts = [
-                        {"text": extraction_prompt},
-                        {
-                            "inline_data": {
-                                "mime_type": "image/jpeg",
-                                "data": img_bytes
-                            }
-                        }
-                    ]
-                    logger.info(f"Successfully processed image: {img_path}")
-                
-                try:
-                    response = client.models.generate_content(
-                        model="gemini-2.0-flash-exp",
-                        contents=[{"role": "user", "parts": parts}],
-                        config=GenerateContentConfig(
-                            temperature=0.1,
-                            max_output_tokens=8000
-                        )
-                    )
-                    
-                    if response and response.text:
-                        try:
-                            # Extract JSON from response
-                            content = extract_json(response.text)
-                            if content:
-                                # Add page number if not present
-                                if "page_number" not in content:
-                                    content["page_number"] = page_num
-                                all_page_content.append(content)
-                                logger.info(f"Successfully extracted content from page {page_num}")
-                            else:
-                                logger.warning(f"No valid JSON content extracted from page {page_num}")
-                        except Exception as e:
-                            logger.error(f"Error parsing page {page_num} content: {str(e)}")
-                    else:
-                        logger.warning(f"No response text for page {page_num}")
-                
-                except Exception as e:
-                    logger.error(f"Error generating content for page {page_num}: {str(e)}")
-                    continue
-                
-            except Exception as e:
-                logger.error(f"Error processing page {page_num}: {str(e)}")
-                continue
-            
-            # Add small delay between pages to avoid rate limiting
-            time.sleep(1)
-        
-        logger.info(f"Completed processing {len(all_page_content)} pages")
-        return all_page_content
-        
-    except Exception as e:
-        logger.error(f"Error in content extraction: {str(e)}")
         raise
 
-def generate_test_cases(client: genai.Client, consolidated_content: List[Dict]) -> Dict:
-    """Generate comprehensive test cases for any type of system requirements"""
+def generate_excel(results: List[Dict], output_dir: Path) -> Path:
+    """Generate Excel output with test cases"""
     try:
-        logger.info("Generating test cases")
+        # Create a consistent filename
+        excel_path = output_dir / "test_cases.xlsx"  # Simplified filename
         
-        if not consolidated_content:
-            logger.error("No content available to generate test cases")
-            return {"unit_tests": [], "integration_tests": [], "performance_tests": []}
-
-        # Format content for analysis
-        content_str = json.dumps(consolidated_content, indent=2)
-        logger.info(f"Processing content from {len(consolidated_content)} pages")
-
-        # Generate unit tests with requirements context
-        unit_test_context = f"""
-        Based on these requirements:
-        {content_str}
+        # Prepare data
+        all_test_cases = []
+        for page in results:
+            test_cases = page.get("test_cases", [])
+            all_test_cases.extend(test_cases)
         
-        {unit_test_prompt}
-        """
+        logger.info(f"Generating Excel with {len(all_test_cases)} test cases")
         
-        unit_test_response = retry_llm_call(client, unit_test_context)
-        unit_tests = unit_test_response.get("unit_test_cases", [])
-        logger.info(f"Generated {len(unit_tests)} unit tests")
-
-        # Generate integration tests with requirements context
-        integration_test_context = f"""
-        Based on these requirements:
-        {content_str}
+        # Create DataFrame
+        df = pd.DataFrame(all_test_cases)
         
-        {integration_test_prompt}
-        """
-        
-        integration_test_response = retry_llm_call(client, integration_test_context)
-        integration_tests = integration_test_response.get("integration_test_cases", [])
-        logger.info(f"Generated {len(integration_tests)} integration tests")
-
-        # Generate performance tests with requirements context
-        performance_test_context = f"""
-        Based on these requirements:
-        {content_str}
-        
-        {performance_test_prompt}
-        """
-        
-        performance_test_response = retry_llm_call(client, performance_test_context)
-        performance_tests = performance_test_response.get("performance_test_cases", [])
-        logger.info(f"Generated {len(performance_tests)} performance tests")
-
-        # Add verification step to ensure test coverage
-        verification_context = f"""
-        Review these test cases against the original requirements:
-        
-        Requirements: {content_str}
-        Generated Tests: {json.dumps({'unit_tests': unit_tests, 'integration_tests': integration_tests, 'performance_tests': performance_tests}, indent=2)}
-        
-        Verify:
-        1. All requirements are covered
-        2. All components are tested
-        3. All workflows are validated
-        4. All error scenarios are handled
-        5. All business rules are verified
-        
-        Return any missing test cases that should be added.
-        """
-        
-        verification_response = retry_llm_call(client, verification_context)
-        
-        # Add any additional test cases from verification
-        if verification_response:
-            unit_tests.extend(verification_response.get("unit_test_cases", []))
-            integration_tests.extend(verification_response.get("integration_test_cases", []))
-            performance_tests.extend(verification_response.get("performance_test_cases", []))
-
-        final_test_cases = {
-            "unit_tests": unit_tests,
-            "integration_tests": integration_tests,
-            "performance_tests": performance_tests
-        }
-
-        logger.info("Test case generation completed successfully")
-        return final_test_cases
-
-    except Exception as e:
-        logger.error(f"Error generating test cases: {str(e)}")
-        return {
-            "unit_tests": [],
-            "integration_tests": [],
-            "performance_tests": []
-        }
-
-def extract_json(text: str) -> Dict:
-    """Extract JSON from text with improved error handling"""
-    try:
-        # Remove any markdown formatting
-        text = re.sub(r'```(?:json)?|```', '', text)
-        
-        # Remove any explanatory text before or after JSON
-        text = text.strip()
-        
-        # Find the first { and last }
-        start = text.find('{')
-        end = text.rfind('}')
-        
-        if start != -1 and end != -1:
-            json_str = text[start:end+1]
-            try:
-                return json.loads(json_str)
-            except json.JSONDecodeError as e:
-                logger.error(f"JSON decode error: {str(e)}")
-                # Try to fix common JSON issues
-                json_str = re.sub(r',\s*}', '}', json_str)  # Remove trailing commas
-                json_str = re.sub(r',\s*]', ']', json_str)  # Remove trailing commas in arrays
-                try:
-                    return json.loads(json_str)
-                except:
-                    logger.error("Failed to parse JSON even after cleanup")
-                    return {}
-        
-        logger.warning("No JSON object found in text")
-        return {}
-            
-    except Exception as e:
-        logger.error(f"Error extracting JSON: {str(e)}")
-        return {}
-
-def generate_excel(test_cases: Dict) -> Path:
-    """Generate Excel file with sections for all test types"""
-    try:
-        logger.info("Starting Excel file generation")
-        excel_path = OUTPUT_FOLDER / f"test_cases_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-        
-        # Prepare data for single sheet
-        all_rows = []
-        
-        # Define consistent styles
-        header_fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
-        section_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
-        alt_row_fill = PatternFill(start_color="E9EFF7", end_color="E9EFF7", fill_type="solid")
-        
-        header_font = Font(name='Calibri', color="FFFFFF", bold=True, size=12)
-        section_font = Font(name='Calibri', color="FFFFFF", bold=True, size=14)
-        content_font = Font(name='Calibri', size=11)
-        
-        border = Border(
-            left=Side(style='thin'),
-            right=Side(style='thin'),
-            top=Side(style='thin'),
-            bottom=Side(style='thin')
-        )
-
-        # Function to add section with consistent styling
-        def add_section(title: str, headers: List[str], data: List[Dict], row_processor):
-            all_rows.append([title] + [""] * (len(headers) - 1))  # Section title
-            all_rows.append(headers)  # Headers
-            
-            if not data:
-                all_rows.append([f"No {title.lower()} generated"] + [""] * (len(headers) - 1))
-            else:
-                for test in data:
-                    all_rows.append(row_processor(test))
-            
-            # Add separator
-            all_rows.append([""] * len(headers))
-            all_rows.append([""] * len(headers))
-
-        # Add Unit Tests Section
-        add_section(
-            "UNIT TEST CASES",
-            ["Test ID", "Component/Function", "Description", "Preconditions", 
-             "Test Steps", "Expected Results", "Priority", "Requirements Covered"],
-            test_cases.get("unit_tests", []),
-            lambda test: [
-                test.get("id", ""),
-                f"{test.get('component', '')}/{test.get('function', '')}",
-                test.get("description", ""),
-                "\n".join(test.get("preconditions", [])),
-                "\n".join(test.get("test_steps", [])),
-                "\n".join(test.get("expected_results", [])),
-                test.get("priority", ""),
-                "\n".join(test.get("requirements_covered", []))
-            ]
-        )
-
-        # Add Integration Tests Section
-        add_section(
-            "INTEGRATION TEST CASES",
-            ["Test ID", "Scenario", "Description", "Components Involved",
-             "Test Steps", "Expected Results", "Priority", "Requirements Covered"],
-            test_cases.get("integration_tests", []),
-            lambda test: [
-                test.get("id", ""),
-                test.get("scenario", ""),
-                test.get("description", ""),
-                "\n".join(test.get("components_involved", [])),
-                "\n".join(test.get("test_steps", [])),
-                "\n".join(test.get("expected_results", [])),
-                test.get("priority", ""),
-                "\n".join(test.get("requirements_covered", []))
-            ]
-        )
-
-        # Add Performance Tests Section
-        add_section(
-            "PERFORMANCE TEST CASES",
-            ["Test ID", "Category", "Scenario", "Description",
-             "Test Steps", "Metrics & Thresholds", "Priority", "Requirements Covered"],
-            test_cases.get("performance_tests", []),
-            lambda test: [
-                test.get("id", ""),
-                test.get("category", ""),
-                test.get("scenario", ""),
-                test.get("description", ""),
-                "\n".join(test.get("test_steps", [])),
-                "\n".join([
-                    f"Metrics: {', '.join(test.get('metrics', []))}",
-                    "Thresholds:",
-                    *[f"{k}: {v}" for k, v in test.get('thresholds', {}).items()]
-                ]),
-                test.get("priority", ""),
-                "\n".join(test.get("requirements_covered", []))
-            ]
-        )
-
-        # Create DataFrame and write to Excel
-        df = pd.DataFrame(all_rows)
+        # Write to Excel with formatting
         with pd.ExcelWriter(excel_path, engine='openpyxl') as writer:
-            df.to_excel(writer, sheet_name='Test Cases', index=False, header=False)
-            
-            # Get the worksheet
-            worksheet = writer.sheets['Test Cases']
-            
-            # Apply styles to all cells
-            for row_idx, row in enumerate(worksheet.rows, 1):
-                row_content = [cell.value for cell in row]
+            df.to_excel(writer, sheet_name='Test Cases', index=False)
+            format_excel_sheet(writer.sheets['Test Cases'])
                 
-                # Determine row type and apply appropriate styling
-                if any(row_content) and row_content[0] in ["UNIT TEST CASES", "INTEGRATION TEST CASES", "PERFORMANCE TEST CASES"]:
-                    # Section headers
-                    for cell in row:
-                        cell.fill = section_fill
-                        cell.font = section_font
-                        cell.alignment = Alignment(horizontal='center', vertical='center')
-                elif any(row_content) and row_content[0] in ["Test ID", "Test Case ID"]:
-                    # Column headers
-                    for cell in row:
-                        cell.fill = header_fill
-                        cell.font = header_font
-                        cell.alignment = Alignment(horizontal='center', vertical='center')
-                elif any(row_content) and not row_content[0].startswith("No "):
-                    # Content rows
-                    for cell in row:
-                        cell.font = content_font
-                        cell.alignment = Alignment(wrap_text=True, vertical='top')
-                        if row_idx % 2 == 0:
-                            cell.fill = alt_row_fill
-                
-                # Apply borders to all cells
-                for cell in row:
-                    cell.border = border
-
-            # Adjust column widths
-            for column in worksheet.columns:
-                max_length = 0
-                for cell in column:
-                    try:
-                        max_length = max(max_length, len(str(cell.value).split('\n')[0]))
-                    except:
-                        pass
-                worksheet.column_dimensions[column[0].column_letter].width = min(max_length + 2, 50)
-
-            # Adjust row heights
-            for row in worksheet.rows:
-                try:
-                    max_lines = max(len(str(cell.value).split('\n')) for cell in row if cell.value)
-                    worksheet.row_dimensions[row[0].row].height = max(15 * max_lines, 20)
-                except:
-                    worksheet.row_dimensions[row[0].row].height = 20
-
-        logger.info(f"Excel file generated successfully: {excel_path}")
+        logger.info(f"Excel file generated: {excel_path}")
         return excel_path
         
     except Exception as e:
         logger.error(f"Error generating Excel file: {str(e)}")
         raise
 
-def retry_llm_call(client: genai.Client, prompt: str, max_retries: int = 3) -> Dict:
-    """Retry LLM calls with JSON validation"""
-    for attempt in range(max_retries):
+def format_excel_sheet(sheet):
+    """Apply formatting to Excel sheet"""
+    for idx, col in enumerate(sheet.columns, 1):
+        sheet.column_dimensions[get_column_letter(idx)].width = 30
+        
+        # Format header
+        header_cell = col[0]
+        header_cell.fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
+        header_cell.font = Font(color="FFFFFF", bold=True)
+        
+        # Format content
+        for cell in col[1:]:
+            cell.alignment = Alignment(wrap_text=True, vertical='top')
+
+def create_session_folders(session_id: str) -> Tuple[Path, Path]:
+    """Create session-specific folders for uploads and outputs"""
+    try:
+        # Create session-specific directories
+        session_upload_dir = BASE_UPLOAD_DIR / session_id
+        session_output_dir = BASE_OUTPUT_DIR / session_id
+        
+        # Create directories if they don't exist
+        session_upload_dir.mkdir(parents=True, exist_ok=True)
+        session_output_dir.mkdir(parents=True, exist_ok=True)
+        
+        return session_upload_dir, session_output_dir
+    except Exception as e:
+        logger.error(f"Error creating session folders: {str(e)}")
+        raise
+
+def cleanup_old_files():
+    """Clean up all files from output and upload directories"""
+    try:
+        logger.info("Cleaning up old files")
+        
+        # Clean root output directory
+        for item in BASE_OUTPUT_DIR.glob('*'):
+            try:
+                if item.is_file():
+                    item.unlink()
+                elif item.is_dir():
+                    shutil.rmtree(item)
+            except Exception as e:
+                logger.warning(f"Failed to delete {item}: {str(e)}")
+                
+        # Clean root upload directory
+        for item in BASE_UPLOAD_DIR.glob('*'):
+            try:
+                if item.is_file():
+                    item.unlink()
+                elif item.is_dir():
+                    shutil.rmtree(item)
+            except Exception as e:
+                logger.warning(f"Failed to delete {item}: {str(e)}")
+                
+        logger.info("Cleanup completed")
+    except Exception as e:
+        logger.error(f"Error during cleanup: {str(e)}")
+
+def cleanup_session_files(session_id: str):
+    """Clean up session-specific files safely"""
+    try:
+        # Clean up upload directory
+        upload_dir = BASE_UPLOAD_DIR / session_id
+        if upload_dir.exists():
+            for item in upload_dir.glob('*'):
+                try:
+                    if item.is_file():
+                        item.unlink(missing_ok=True)
+                except Exception as e:
+                    logger.warning(f"Failed to delete file {item}: {str(e)}")
+            try:
+                upload_dir.rmdir()  # Only remove if empty
+            except Exception as e:
+                logger.warning(f"Failed to remove upload dir: {str(e)}")
+            
+        # Clean up output directory
+        output_dir = BASE_OUTPUT_DIR / session_id
+        if output_dir.exists():
+            for item in output_dir.glob('*'):
+                try:
+                    if item.is_file():
+                        item.unlink(missing_ok=True)
+                except Exception as e:
+                    logger.warning(f"Failed to delete file {item}: {str(e)}")
+            try:
+                output_dir.rmdir()  # Only remove if empty
+            except Exception as e:
+                logger.warning(f"Failed to remove output dir: {str(e)}")
+            
+        logger.info(f"Cleaned up session: {session_id}")
+    except Exception as e:
+        logger.error(f"Error cleaning up session {session_id}: {str(e)}")
+
+@app.get("/status/{session_id}")
+async def get_status(session_id: str):
+    """Get processing status for a session"""
+    try:
+        output_dir = BASE_OUTPUT_DIR / session_id
+        if not output_dir.exists():
+            return JSONResponse({
+                "status": "not_found",
+                "message": "Session not found"
+            })
+            
+        status_file = output_dir / "processing_status.json"
+        if not status_file.exists():
+            return JSONResponse({
+                "status": "not_found",
+                "message": "Status not found"
+            })
+            
+        with open(status_file) as f:
+            status = json.load(f)
+            
+        # Add download URLs if processing is complete
+        if status["status"] == "completed":
+            excel_path = output_dir / "test_cases.xlsx"
+            json_path = output_dir / "results.json"
+            
+            if excel_path.exists() and json_path.exists():
+                status.update({
+                    "excel_url": f"/download/{session_id}/excel/test_cases.xlsx",
+                    "json_url": f"/download/{session_id}/json/results.json"
+                })
+                
+        return JSONResponse(status)
+        
+    except Exception as e:
+        logger.error(f"Error getting status: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.error(f"Global error handler caught: {str(exc)}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error. Please try again later."}
+    )
+
+async def process_document(
+    file_path: Path,
+    session_id: str
+) -> None:
+    """Process document and generate test cases"""
+    try:
+        output_dir = BASE_OUTPUT_DIR / session_id
+        status_file = output_dir / "processing_status.json"
+        results_file = output_dir / "results.json"  # Simplified filename
+        
+        def update_status(status: str, message: str, progress: int = 0):
+            with open(status_file, 'w') as f:
+                json.dump({
+                    "status": status,
+                    "message": message,
+                    "progress": progress,
+                    "session_id": session_id
+                }, f)
+        
+        update_status("processing", "Starting document processing...", 0)
+        
+        # Convert PDF to images
+        update_status("processing", "Converting PDF to images...", 10)
+        image_paths = pdf_to_images(file_path, output_dir)
+        
+        if len(image_paths) > MAX_PAGES:
+            raise ValueError(f"Document has too many pages (max: {MAX_PAGES})")
+            
+        # Initialize Gemini
+        update_status("processing", "Initializing AI model...", 20)
+        client = init_gemini()
+        
+        # Process pages
+        results = []
+        total_pages = len(image_paths)
+        
+        for idx, image_path in enumerate(image_paths, 1):
+            try:
+                progress = 20 + (60 * idx // total_pages)  # Progress from 20% to 80%
+                update_status(
+                    "processing", 
+                    f"Processing page {idx}/{total_pages}...",
+                    progress
+                )
+                
+                result = process_page(client, image_path, idx)
+                results.append(result)
+            except Exception as e:
+                logger.error(f"Error processing page {idx}: {str(e)}")
+                results.append({
+                    "page_number": idx,
+                    "error": str(e),
+                    "requirements": [],
+                    "test_cases": []
+                })
+        
+        # Save results with consistent filename
+        logger.info("Saving test cases to JSON")
+        with open(results_file, 'w') as f:
+            json.dump(results, f, indent=2)
+            
+        # Generate Excel with consistent filename
+        logger.info("Generating Excel file")
+        excel_path = generate_excel(results, output_dir)
+        
+        # Update status with file info
+        update_status("completed", "Processing completed", 100)
+        
+        logger.info(f"Processing completed. Files generated in {output_dir}")
+        
+    except Exception as e:
+        logger.error(f"Document processing error: {str(e)}", exc_info=True)
+        update_status("failed", f"Processing failed: {str(e)}", 0)
+        cleanup_session_files(session_id)
+
+# Update the test case processing function to handle more test cases
+async def process_test_cases(requirements, output_dir):
+    all_test_cases = []
+    
+    for req in requirements:
+        # Create content for test case generation
+        content = {
+            "contents": [{
+                "role": "user",
+                "parts": [{
+                    "text": f"{test_case_generation_prompt}\n\nRequirement:\n{json.dumps(req, indent=2)}"
+                }]
+            }]
+        }
+
         try:
             response = client.models.generate_content(
                 model="gemini-2.0-flash-exp",
-                contents=[{"role": "user", "parts": [{"text": prompt}]}],
+                **content,
                 config=GenerateContentConfig(
-                    temperature=0.1,
-                    max_output_tokens=8000,
-                    top_p=0.8,
-                    top_k=40
+                    temperature=0.7,  # Increased slightly for more variety
+                    max_output_tokens=2000  # Increased for more detailed output
                 )
             )
             
             if response and response.text:
-                result = extract_json(response.text)
-                if result:
-                    return result
-            
-            logger.warning(f"Attempt {attempt + 1}: Failed to get valid JSON")
-            time.sleep(1)  # Add delay between retries
-            
+                # Extract JSON from response
+                json_match = re.search(r'\{[\s\S]*\}', response.text)
+                if json_match:
+                    test_cases = json.loads(json_match.group(0))
+                    if "test_cases" in test_cases:
+                        all_test_cases.extend(test_cases["test_cases"])
+                        
         except Exception as e:
-            logger.error(f"Attempt {attempt + 1} failed: {str(e)}")
-    
-    return {}
+            logger.error(f"Error generating test cases for requirement {req['req_id']}: {str(e)}")
+            continue
 
-@app.post("/upload")
-async def upload_file(file: UploadFile = File(...)):
-    """Handle file upload and processing"""
-    try:
-        logger.info(f"Processing uploaded file: {file.filename}")
-        
-        # Validate file type
-        if not file.filename.lower().endswith('.pdf'):
-            raise HTTPException(
-                status_code=400,
-                detail="Only PDF files are currently supported"
-            )
-        
-        # Validate file size
-        file_size = 0
-        CHUNK_SIZE = 1024 * 1024  # 1MB
-        MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
-        
-        while chunk := await file.read(CHUNK_SIZE):
-            file_size += len(chunk)
-            if file_size > MAX_FILE_SIZE:
-                raise HTTPException(
-                    status_code=400,
-                    detail="File size exceeds maximum limit of 10MB"
-                )
-        
-        await file.seek(0)  # Reset file pointer
-        
-        # Create unique filename
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        original_filename = Path(file.filename)
-        file_path = UPLOAD_FOLDER / f"{original_filename.stem}_{timestamp}{original_filename.suffix}"
-        
-        # Save uploaded file
-        logger.info(f"Saving file to: {file_path}")
-        try:
-            with open(file_path, "wb") as buffer:
-                shutil.copyfileobj(file.file, buffer)
-        except Exception as e:
-            logger.error(f"Error saving file: {str(e)}")
-            raise HTTPException(
-                status_code=500,
-                detail="Failed to save uploaded file"
-            )
-        
-        # Convert PDF to images
-        logger.info("Converting PDF to images")
-        try:
-            image_paths = pdf_to_images(file_path)
-        except Exception as e:
-            logger.error(f"Error converting PDF to images: {str(e)}")
-            raise HTTPException(
-                status_code=400,
-                detail="Unable to process document. Please ensure it's not corrupted or password protected."
-            )
-        
-        # Initialize Gemini client
-        logger.info("Initializing Gemini client")
-        client = init_gemini()
-        
-        # Extract content from all pages
-        logger.info("Extracting content from pages")
-        page_contents = extract_page_content(client, image_paths)
-        
-        # Generate test cases with better error handling
-        try:
-            test_cases = generate_test_cases(client, page_contents)
-        except Exception as e:
-            logger.error(f"Error generating test cases: {str(e)}")
-            test_cases = {"unit_tests": [], "integration_tests": [], "performance_tests": []}
-        
-        # Generate Excel file
-        try:
-            excel_path = generate_excel(test_cases)
-        except Exception as e:
-            logger.error(f"Error generating Excel file: {str(e)}")
-            raise HTTPException(status_code=500, detail="Failed to generate Excel file")
-        
-        # Save JSON results
-        logger.info("Saving JSON results")
-        json_path = OUTPUT_FOLDER / f"results_{timestamp}.json"
-        results = {
-            "page_contents": page_contents,
-            "test_cases": test_cases
-        }
-        with open(json_path, 'w') as f:
-            json.dump(results, f, indent=2)
-        
-        logger.info("Processing completed successfully")
-        return JSONResponse({
-            "message": "Processing completed successfully",
-            "excel_download_url": f"/download/excel/{excel_path.name}",
-            "json_download_url": f"/download/json/{json_path.name}",
-            "results": results
-        })
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Unexpected error: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail="An unexpected error occurred while processing your file"
-        )
+    # Save all test cases to JSON
+    test_cases_file = os.path.join(output_dir, "test_cases.json")
+    with open(test_cases_file, "w") as f:
+        json.dump({"test_cases": all_test_cases}, f, indent=2)
 
-@app.get("/download/excel/{filename}")
-async def download_excel(filename: str):
-    """Download generated Excel file"""
-    file_path = OUTPUT_FOLDER / filename
-    if not file_path.exists():
-        raise HTTPException(status_code=404, detail="File not found")
-    return FileResponse(
-        path=file_path,
-        filename=filename,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
-
-@app.get("/download/json/{filename}")
-async def download_json(filename: str):
-    """Download JSON results"""
-    file_path = OUTPUT_FOLDER / filename
-    if not file_path.exists():
-        raise HTTPException(status_code=404, detail="File not found")
-    return FileResponse(
-        path=file_path,
-        filename=filename,
-        media_type="application/json"
-    )
+    return all_test_cases
 
 if __name__ == "__main__":
     import uvicorn
     logger.info("Starting FastAPI server")
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

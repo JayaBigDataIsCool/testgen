@@ -178,46 +178,435 @@
             display: none;
             max-width: 800px;
             margin: 2rem auto;
+            padding: 3rem;
+            background: linear-gradient(135deg, #ffffff 0%, #f8f9ff 100%);
+            border-radius: 24px;
+            box-shadow: var(--shadow-md);
+            animation: slideIn 0.5s ease-out;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .processing::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(90deg, #4F46E5, #7C3AED, #9333EA, #4F46E5);
+            background-size: 200% 200%;
+            animation: gradientShift 2s linear infinite;
+        }
+
+        .processing-visual {
+            margin: 2rem 0;
+            height: 200px;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .processing-circle {
+            width: 140px;
+            height: 140px;
+            border-radius: 50%;
+            border: 4px solid transparent;
+            border-top-color: #4F46E5;
+            animation: spin 1s linear infinite;
+            position: relative;
+        }
+
+        .processing-circle::before {
+            content: '';
+            position: absolute;
+            inset: -15px;
+            border-radius: 50%;
+            border: 4px solid transparent;
+            border-top-color: #7C3AED;
+            animation: spin 2s linear infinite reverse;
+        }
+
+        .processing-circle::after {
+            content: '';
+            position: absolute;
+            inset: 15px;
+            border-radius: 50%;
+            border: 4px solid transparent;
+            border-top-color: #9333EA;
+            animation: spin 1.5s linear infinite;
+        }
+
+        .processing-dots {
+            position: absolute;
+            display: flex;
+            gap: 8px;
+        }
+
+        .processing-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #4F46E5;
+            animation: dotPulse 1.5s ease-in-out infinite;
+        }
+
+        .processing-dot:nth-child(2) {
+            animation-delay: 0.2s;
+        }
+
+        .processing-dot:nth-child(3) {
+            animation-delay: 0.4s;
         }
 
         .progress-bar {
             height: 6px;
             background: #F1F5F9;
-            border-radius: 3px;
+            border-radius: 999px;
             overflow: hidden;
-            margin-bottom: 2rem;
+            margin: 2rem 0;
+            position: relative;
         }
 
         .progress-fill {
             height: 100%;
-            background: var(--gradient-text);
+            background: linear-gradient(90deg, #4F46E5, #7C3AED);
             width: 0%;
-            transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+            transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+        }
+
+        .progress-fill::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(
+                90deg,
+                rgba(255,255,255,0) 0%,
+                rgba(255,255,255,0.4) 50%,
+                rgba(255,255,255,0) 100%
+            );
+            transform: translateX(-100%);
+            animation: shimmer 2s infinite;
         }
 
         .steps {
-            text-align: left;
+            position: relative;
+            margin-top: 3rem;
         }
 
         .step {
             display: flex;
             align-items: center;
-            gap: 1rem;
-            padding: 1rem 1.25rem;
-            color: var(--text-secondary);
-            margin-bottom: 0.5rem;
-            border-radius: 10px;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+            border-radius: 16px;
             background: white;
             border: 1px solid rgba(79, 70, 229, 0.1);
+            transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
+            transform: translateX(-20px);
+            opacity: 0;
+        }
+
+        .step.visible {
+            transform: translateX(0);
+            opacity: 1;
         }
 
         .step.active {
-            background: var(--bg-feature);
+            background: rgba(79, 70, 229, 0.02);
             border-color: rgba(79, 70, 229, 0.2);
-            transform: translateX(4px);
+            box-shadow: 0 4px 20px rgba(79, 70, 229, 0.1);
+        }
+
+        .step.active::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0;
+            height: 100%;
+            width: 4px;
+            background: linear-gradient(to bottom, #4F46E5, #7C3AED);
+            animation: glowPulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+
+        .step-number {
+            width: 44px;
+            height: 44px;
+            border-radius: 12px;
+            background: #F8FAFC;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            margin-right: 1.25rem;
+            transition: all 0.4s ease;
+            position: relative;
+            z-index: 1;
+        }
+
+        .step.active .step-number {
+            background: #4F46E5;
+            color: white;
+            transform: scale(1.1);
+            box-shadow: 0 0 20px rgba(79, 70, 229, 0.3);
+        }
+
+        .step.active .step-number::before {
+            content: '';
+            position: absolute;
+            inset: -2px;
+            border-radius: 12px;
+            background: linear-gradient(135deg, #4F46E5, #7C3AED);
+            opacity: 0;
+            animation: pulseGlow 2s ease-in-out infinite;
+        }
+
+        .step-content {
+            flex: 1;
+            opacity: 0.7;
+            transition: all 0.4s ease;
+        }
+
+        .step.active .step-content {
+            opacity: 1;
+            transform: translateX(10px);
+        }
+
+        .step-content h4 {
+            color: var(--text-primary);
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .step.active .step-content h4::after {
+            content: '';
+            width: 8px;
+            height: 8px;
+            background: #4F46E5;
+            border-radius: 50%;
+            animation: blink 1.5s ease-in-out infinite;
+        }
+
+        .step-content p {
+            color: var(--text-secondary);
+            font-size: 0.875rem;
+            max-width: 90%;
+            position: relative;
+            padding-left: 0;
+            transition: all 0.4s ease;
+        }
+
+        .step.active .step-content p {
+            padding-left: 1rem;
+        }
+
+        .step.active .step-content p::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 50%;
+            width: 12px;
+            height: 2px;
+            background: #4F46E5;
+            transform: scaleX(0);
+            transform-origin: left;
+            animation: lineGrow 0.6s forwards;
+        }
+
+        .download-section {
+            display: none;
+            max-width: 800px;
+            margin: 2rem auto;
+            padding: 3rem;
+            background: linear-gradient(135deg, #ffffff 0%, #f8f9ff 100%);
+            border-radius: 24px;
+            box-shadow: var(--shadow-md);
+            animation: slideIn 0.5s ease-out;
+            text-align: center;
+        }
+
+        .success-animation {
+            margin-bottom: 2rem;
+        }
+
+        .checkmark {
+            width: 80px;
+            height: 80px;
+        }
+
+        .checkmark-circle {
+            stroke: #4F46E5;
+            stroke-width: 2;
+            stroke-dasharray: 166;
+            stroke-dashoffset: 166;
+            animation: stroke 0.6s cubic-bezier(0.65, 0, 0.45, 1) forwards;
+        }
+
+        .checkmark-check {
+            stroke: #4F46E5;
+            stroke-width: 2;
+            stroke-dasharray: 48;
+            stroke-dashoffset: 48;
+            animation: stroke 0.3s cubic-bezier(0.65, 0, 0.45, 1) 0.8s forwards;
+        }
+
+        @keyframes stroke {
+            100% { stroke-dashoffset: 0; }
+        }
+
+        .download-title {
+            font-size: 1.75rem;
+            color: var(--text-primary);
+            margin-bottom: 0.5rem;
+            font-weight: 600;
+        }
+
+        .download-subtitle {
+            color: var(--text-secondary);
+            margin-bottom: 2rem;
+        }
+
+        .download-buttons {
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+            margin-bottom: 2rem;
+        }
+
+        .download-button {
+            display: inline-flex;
+            align-items: center;
+            padding: 1rem 2rem;
+            border: none;
+            border-radius: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            gap: 0.75rem;
+        }
+
+        .download-button.excel {
+            background: linear-gradient(135deg, #059669 0%, #10B981 100%);
+            color: white;
+        }
+
+        .download-button.json {
+            background: linear-gradient(135deg, #4F46E5 0%, #6366F1 100%);
+            color: white;
+        }
+
+        .download-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
+        }
+
+        .download-button:disabled {
+            opacity: 0.7;
+            cursor: wait;
+        }
+
+        .process-another-button {
+            padding: 0.75rem 1.5rem;
+            border: 2px solid #4F46E5;
+            border-radius: 12px;
+            background: transparent;
             color: #4F46E5;
             font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .process-another-button:hover {
+            background: rgba(79, 70, 229, 0.1);
+            transform: translateY(-2px);
+        }
+
+        .loading-spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(1); opacity: 0.8; }
+            50% { transform: scale(1.05); opacity: 1; }
+            100% { transform: scale(1); opacity: 0.8; }
+        }
+
+        @keyframes slideIn {
+            from { transform: translateY(20px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+
+        @keyframes gradientShift {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+
+        @keyframes floatUpDown {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-10px); }
+        }
+
+        @keyframes progressPulse {
+            0% { box-shadow: 0 0 0 0 rgba(79, 70, 229, 0.4); }
+            70% { box-shadow: 0 0 0 10px rgba(79, 70, 229, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(79, 70, 229, 0); }
+        }
+
+        @keyframes shimmer {
+            100% { transform: translateX(100%); }
+        }
+
+        @keyframes glowPulse {
+            0% { box-shadow: 0 0 5px rgba(79, 70, 229, 0.2); }
+            50% { box-shadow: 0 0 20px rgba(79, 70, 229, 0.4); }
+            100% { box-shadow: 0 0 5px rgba(79, 70, 229, 0.2); }
+        }
+
+        @keyframes pulseGlow {
+            0% { opacity: 0; transform: scale(1); }
+            50% { opacity: 0.3; transform: scale(1.1); }
+            100% { opacity: 0; transform: scale(1); }
+        }
+
+        @keyframes blink {
+            0%, 100% { opacity: 0.5; transform: scale(0.8); }
+            50% { opacity: 1; transform: scale(1.2); }
+        }
+
+        @keyframes lineGrow {
+            from { transform: scaleX(0); }
+            to { transform: scaleX(1); }
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        @keyframes dotPulse {
+            0%, 100% { transform: scale(0.3); opacity: 0.2; }
+            50% { transform: scale(1); opacity: 1; }
         }
     </style>
 </head>
@@ -256,19 +645,44 @@
             <input type="file" id="fileInput" hidden accept=".pdf">
         </div>
 
-        <div class="processing" id="processing">
+        <div class="processing" id="processing" style="display: none;">
+            <h3 class="processing-title">Processing Your Document</h3>
+            <p class="processing-subtitle">Analyzing and generating comprehensive test cases</p>
+            
+            <div class="processing-visual">
+                <div class="processing-circle"></div>
+                <div class="processing-dots">
+                    <div class="processing-dot"></div>
+                    <div class="processing-dot"></div>
+                    <div class="processing-dot"></div>
+                </div>
+            </div>
+            
             <div class="progress-bar">
                 <div class="progress-fill" id="progressFill"></div>
             </div>
+            
             <div class="steps">
                 <div class="step" data-step="1">
-                    <span>Analyzing requirements document</span>
+                    <div class="step-number">1</div>
+                    <div class="step-content">
+                        <h4>Document Analysis</h4>
+                        <p>Extracting requirements and processing content</p>
+                    </div>
                 </div>
                 <div class="step" data-step="2">
-                    <span>Generating test cases</span>
+                    <div class="step-number">2</div>
+                    <div class="step-content">
+                        <h4>Test Case Generation</h4>
+                        <p>Creating detailed test scenarios and validations</p>
+                    </div>
                 </div>
                 <div class="step" data-step="3">
-                    <span>Creating test documentation</span>
+                    <div class="step-number">3</div>
+                    <div class="step-content">
+                        <h4>Documentation</h4>
+                        <p>Preparing Excel and JSON outputs</p>
+                    </div>
                 </div>
             </div>
         </div>
@@ -280,6 +694,27 @@
     const fileInput = document.getElementById('fileInput');
     const processing = document.getElementById('processing');
     const progressFill = document.getElementById('progressFill');
+    const steps = document.querySelectorAll('.step');
+
+    // Handle drag and drop events
+    dropZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropZone.classList.add('dragover');
+    });
+
+    dropZone.addEventListener('dragleave', () => {
+        dropZone.classList.remove('dragover');
+    });
+
+    dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropZone.classList.remove('dragover');
+        const files = e.dataTransfer.files;
+        if (files.length) {
+            fileInput.files = files;
+            handleFileSelect();
+        }
+    });
 
     // Handle click to browse
     dropZone.addEventListener('click', () => {
@@ -289,327 +724,239 @@
     // Handle file selection
     fileInput.addEventListener('change', handleFileSelect);
 
-    // Handle drag and drop events
-    dropZone.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        dropZone.classList.add('drag-over');
-    });
-
-    dropZone.addEventListener('dragleave', (e) => {
-        e.preventDefault();
-        dropZone.classList.remove('drag-over');
-    });
-
-    dropZone.addEventListener('drop', (e) => {
-        e.preventDefault();
-        dropZone.classList.remove('drag-over');
-        const files = e.dataTransfer.files;
-        handleFiles(files);
-    });
-
-    function handleFileSelect(e) {
-        const files = e.target.files;
-        handleFiles(files);
-    }
-
-    async function handleFiles(files) {
-        if (files.length === 0) return;
-
-        const file = files[0];
-        const allowedTypes = ['application/pdf'];
-
-        if (!allowedTypes.includes(file.type)) {
-            showErrorMessage('Please upload a PDF file. Other formats are not supported yet.');
-            return;
-        }
-
-        // Show processing UI
-        dropZone.style.display = 'none';
-        processing.style.display = 'block';
-
+    async function handleFileSelect() {
         try {
+            const file = fileInput.files[0];
+            if (!file) return;
+
+            // Show processing UI
+            dropZone.style.display = 'none';
+            processing.style.display = 'block';
+
             const formData = new FormData();
             formData.append('file', file);
 
-            // Start progress animation
-            const progressInterval = startProgressAnimation();
-
-            const response = await fetch('/upload', {
+            // Upload file
+            const uploadResponse = await fetch('/upload', {
                 method: 'POST',
                 body: formData
             });
 
-            // Clear the progress interval
-            clearInterval(progressInterval);
-
-            if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.detail || 'Upload failed. Please try again.');
+            if (!uploadResponse.ok) {
+                const error = await uploadResponse.json();
+                throw new Error(error.detail || 'Upload failed');
             }
 
-            const result = await response.json();
-
-            // Show success message
-            showSuccessMessage(result);
-
-            // Download Excel file automatically
-            if (result.excel_download_url) {
-                window.location.href = result.excel_download_url;
-            }
+            const uploadResult = await uploadResponse.json();
+            pollStatus(uploadResult.session_id);
 
         } catch (error) {
-            console.error('Upload error:', error);
-            let errorMessage = error.message;
-            
-            // Handle specific error cases
-            if (errorMessage.includes('broken document')) {
-                errorMessage = 'The PDF appears to be corrupted. Please check the file and try again.';
-            } else if (errorMessage.includes('Failed to convert')) {
-                errorMessage = 'Unable to process the PDF. Please ensure it\'s not password protected and try again.';
-            }
-            
-            showErrorMessage(errorMessage);
-        } finally {
-            resetUI();
+            showError(error.message);
         }
     }
 
-    function startProgressAnimation() {
-        let progress = 0;
+    function pollStatus(sessionId) {
+        let retryCount = 0;
+        const MAX_RETRIES = 180; // 3 minutes max
+        
+        const interval = setInterval(async () => {
+            try {
+                if (retryCount >= MAX_RETRIES) {
+                    clearInterval(interval);
+                    showError("Processing timeout. Please try again.");
+                    return;
+                }
+
+                const response = await fetch(`/status/${sessionId}`);
+                const data = await response.json();
+
+                // Update progress and steps
+                updateProgress(data.progress || 0);
+                updateSteps(data.progress || 0);
+
+                if (data.status === 'completed') {
+                    clearInterval(interval);
+                    if (data.excel_url && data.json_url) {
+                        showDownloadOptions(data);
+                    } else {
+                        showError("Generated files not found");
+                    }
+                } else if (data.status === 'failed') {
+                    clearInterval(interval);
+                    showError(data.message || 'Processing failed');
+                }
+                
+                retryCount++;
+            } catch (error) {
+                clearInterval(interval);
+                showError('Failed to check status');
+            }
+        }, 2000); // Poll every 2 seconds instead of 1
+    }
+
+    function updateProgress(progress) {
+        const progressFill = document.getElementById('progressFill');
+        progressFill.style.width = `${progress}%`;
+        
+        // Add smooth easing
+        progressFill.style.transition = 'width 0.8s cubic-bezier(0.4, 0, 0.2, 1)';
+        
+        // Update processing circle animation speed based on progress
+        const processingCircle = document.querySelector('.processing-circle');
+        const animationDuration = Math.max(0.5, 2 - (progress / 100)); // Speeds up as progress increases
+        processingCircle.style.animationDuration = `${animationDuration}s`;
+    }
+
+    function updateSteps(progress) {
         const steps = document.querySelectorAll('.step');
         
-        return setInterval(() => {
-            // Slower progress to show realistic processing time
-            progress += 0.5;
-            if (progress > 95) progress = 95; // Keep at 95% until complete
-            progressFill.style.width = `${progress}%`;
-
-            // Update active step
-            if (progress < 33) {
-                updateActiveStep(steps, 0);
-            } else if (progress < 66) {
-                updateActiveStep(steps, 1);
-            } else {
-                updateActiveStep(steps, 2);
-            }
-        }, 100);
-    }
-
-    function showSuccessMessage(result) {
-        // Create success message container
-        const successMessage = document.createElement('div');
-        successMessage.className = 'success-message';
-        successMessage.innerHTML = `
-            <div class="success-content">
-                <svg class="checkmark" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 52 52">
-                    <circle class="checkmark__circle" cx="26" cy="26" r="25" fill="none"/>
-                    <path class="checkmark__check" fill="none" d="M14.1 27.2l7.1 7.2 16.7-16.8"/>
-                </svg>
-                <h3>Processing Complete!</h3>
-                <p>Your test cases have been generated successfully.</p>
-                <div class="download-links">
-                    <a href="${result.excel_download_url}" class="download-button">Download Excel</a>
-                    <a href="${result.json_download_url}" class="download-button secondary">Download JSON</a>
-                </div>
-            </div>
-        `;
-        document.querySelector('.container').appendChild(successMessage);
-
-        // Add success message styles
-        const style = document.createElement('style');
-        style.textContent = `
-            .success-message {
-                position: fixed;
-                top: 50%;
-                left: 50%;
-                transform: translate(-50%, -50%);
-                background: white;
-                padding: 2rem;
-                border-radius: 16px;
-                box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
-                text-align: center;
-                z-index: 1000;
-            }
-            .success-content {
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-                gap: 1rem;
-            }
-            .checkmark {
-                width: 56px;
-                height: 56px;
-                border-radius: 50%;
-                stroke-width: 2;
-                stroke: #4F46E5;
-                stroke-miterlimit: 10;
-                animation: fill .4s ease-in-out .4s forwards, scale .3s ease-in-out .9s both;
-            }
-            .checkmark__circle {
-                stroke-dasharray: 166;
-                stroke-dashoffset: 166;
-                stroke-width: 2;
-                stroke-miterlimit: 10;
-                stroke: #4F46E5;
-                fill: none;
-                animation: stroke 0.6s cubic-bezier(0.65, 0, 0.45, 1) forwards;
-            }
-            .checkmark__check {
-                transform-origin: 50% 50%;
-                stroke-dasharray: 48;
-                stroke-dashoffset: 48;
-                animation: stroke 0.3s cubic-bezier(0.65, 0, 0.45, 1) 0.8s forwards;
-            }
-            .download-links {
-                display: flex;
-                gap: 1rem;
-                margin-top: 1rem;
-            }
-            .download-button {
-                padding: 0.75rem 1.5rem;
-                border-radius: 8px;
-                background: var(--gradient-text);
-                color: white;
-                text-decoration: none;
-                font-weight: 500;
-                transition: transform 0.2s ease;
-            }
-            .download-button.secondary {
-                background: white;
-                border: 1px solid #4F46E5;
-                color: #4F46E5;
-            }
-            .download-button:hover {
-                transform: translateY(-2px);
-            }
-            @keyframes stroke {
-                100% { stroke-dashoffset: 0; }
-            }
-            @keyframes scale {
-                0%, 100% { transform: none; }
-                50% { transform: scale3d(1.1, 1.1, 1); }
-            }
-            @keyframes fill {
-                100% { box-shadow: inset 0 0 0 30px #4F46E5; }
-            }
-        `;
-        document.head.appendChild(style);
-
-        // Remove success message after 10 seconds
-        setTimeout(() => {
-            successMessage.remove();
-        }, 10000);
-    }
-
-    function showErrorMessage(message) {
-        const errorMessage = document.createElement('div');
-        errorMessage.className = 'error-message';
-        errorMessage.innerHTML = `
-            <div class="error-content">
-                <svg class="error-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                    <circle cx="12" cy="12" r="10" />
-                    <line x1="15" y1="9" x2="9" y2="15" />
-                    <line x1="9" y1="9" x2="15" y2="15" />
-                </svg>
-                <h3>Processing Failed</h3>
-                <p>${message}</p>
-                <div class="error-actions">
-                    <button class="retry-btn" onclick="this.parentElement.parentElement.parentElement.remove()">Try Again</button>
-                    <button class="close-btn" onclick="this.parentElement.parentElement.parentElement.remove()">Close</button>
-                </div>
-            </div>
-        `;
-        document.querySelector('.container').appendChild(errorMessage);
-
-        // Update error message styles to include new buttons
-        const style = document.createElement('style');
-        style.textContent = `
-            .error-message {
-                position: fixed;
-                top: 50%;
-                left: 50%;
-                transform: translate(-50%, -50%);
-                background: white;
-                padding: 2rem;
-                border-radius: 16px;
-                box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
-                text-align: center;
-                z-index: 1000;
-            }
-            .error-content {
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-                gap: 1rem;
-            }
-            .error-icon {
-                width: 48px;
-                height: 48px;
-                stroke: #EF4444;
-                stroke-width: 2;
-            }
-            .error-message button {
-                padding: 0.75rem 1.5rem;
-                border-radius: 8px;
-                background: #EF4444;
-                color: white;
-                border: none;
-                cursor: pointer;
-                font-weight: 500;
-                transition: transform 0.2s ease;
-            }
-            .error-message button:hover {
-                transform: translateY(-2px);
-            }
-            .error-actions {
-                display: flex;
-                gap: 1rem;
-                margin-top: 1rem;
-            }
-            .retry-btn {
-                padding: 0.75rem 1.5rem;
-                border-radius: 8px;
-                background: var(--gradient-text);
-                color: white;
-                border: none;
-                cursor: pointer;
-                font-weight: 500;
-                transition: transform 0.2s ease;
-            }
-            .close-btn {
-                padding: 0.75rem 1.5rem;
-                border-radius: 8px;
-                background: white;
-                color: #4F46E5;
-                border: 1px solid #4F46E5;
-                cursor: pointer;
-                font-weight: 500;
-                transition: transform 0.2s ease;
-            }
-            .retry-btn:hover, .close-btn:hover {
-                transform: translateY(-2px);
-            }
-        `;
-        document.head.appendChild(style);
-    }
-
-    function updateActiveStep(steps, activeIndex) {
         steps.forEach((step, index) => {
-            if (index === activeIndex) {
+            const stepProgress = (index + 1) * 33.33;
+            const delay = index * 200; // Increased delay for more noticeable stagger
+            
+            // Add visible class with delay
+            setTimeout(() => {
+                step.classList.add('visible');
+            }, delay);
+            
+            // Remove existing classes
+            step.classList.remove('active', 'completed');
+            
+            // Add appropriate class based on progress
+            if (progress >= stepProgress) {
+                step.classList.add('completed');
+            } else if (progress >= stepProgress - 33.33) {
                 step.classList.add('active');
-            } else {
-                step.classList.remove('active');
+                
+                // Animate the step content
+                const content = step.querySelector('.step-content');
+                content.style.transform = 'translateX(10px)';
+                content.style.opacity = '1';
             }
         });
     }
 
-    function resetUI() {
+    function showDownloadOptions(data) {
+        document.querySelector('.download-section')?.remove();
         processing.style.display = 'none';
-        dropZone.style.display = 'block';
+        
+        const downloadSection = document.createElement('div');
+        downloadSection.className = 'download-section';
+        downloadSection.innerHTML = `
+            <div class="success-animation">
+                <svg class="checkmark" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 52 52">
+                    <circle class="checkmark-circle" cx="26" cy="26" r="25" fill="none"/>
+                    <path class="checkmark-check" fill="none" d="M14.1 27.2l7.1 7.2 16.7-16.8"/>
+                </svg>
+            </div>
+            <h3 class="download-title">Processing Complete! 🎉</h3>
+            <p class="download-subtitle">Your test cases are ready to download</p>
+            
+            <div class="download-buttons">
+                <button class="download-button excel" onclick="downloadFile('${data.excel_url}', 'excel')">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                        <polyline points="14 2 14 8 20 8"/>
+                        <line x1="16" y1="13" x2="8" y2="13"/>
+                        <line x1="16" y1="17" x2="8" y2="17"/>
+                        <line x1="10" y1="9" x2="8" y2="9"/>
+                    </svg>
+                    Download Excel
+                </button>
+                <button class="download-button json" onclick="downloadFile('${data.json_url}', 'json')">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                        <polyline points="14 2 14 8 20 8"/>
+                        <path d="M10 12a1 1 0 0 0 1 1h2a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1h-2a1 1 0 0 0-1 1v2z"/>
+                    </svg>
+                    Download JSON
+                </button>
+            </div>
+            
+            <button class="process-another-button" onclick="resetUI()">
+                Process Another Document
+            </button>
+        `;
+        
+        document.querySelector('.container').appendChild(downloadSection);
+        downloadSection.style.display = 'block';
+        downloadSection.scrollIntoView({ behavior: 'smooth' });
+    }
+
+    async function downloadFile(url, type) {
+        try {
+            const downloadButton = document.querySelector(`.download-button.${type}`);
+            if (downloadButton) {
+                downloadButton.disabled = true;
+                downloadButton.innerHTML = `
+                    <span class="loading-spinner"></span>
+                    <span>Downloading...</span>
+                `;
+            }
+
+            // Create hidden iframe for download
+            const iframe = document.createElement('iframe');
+            iframe.style.display = 'none';
+            document.body.appendChild(iframe);
+            
+            // Start download
+            iframe.src = url;
+            
+            // Remove iframe and restore button after download starts
+            setTimeout(() => {
+                document.body.removeChild(iframe);
+                if (downloadButton) {
+                    downloadButton.disabled = false;
+                    downloadButton.innerHTML = `
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                            <polyline points="14 2 14 8 20 8"/>
+                            ${type === 'excel' ? `
+                                <line x1="16" y1="13" x2="8" y2="13"/>
+                                <line x1="16" y1="17" x2="8" y2="17"/>
+                                <line x1="10" y1="9" x2="8" y2="9"/>
+                            ` : `
+                                <path d="M10 12a1 1 0 0 0 1 1h2a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1h-2a1 1 0 0 0-1 1v2z"/>
+                            `}
+                        </svg>
+                        Download ${type.toUpperCase()}
+                    `;
+                }
+            }, 2000);
+
+        } catch (error) {
+            console.error('Download error:', error);
+            showError(`Failed to download ${type.toUpperCase()} file`);
+            
+            if (downloadButton) {
+                downloadButton.disabled = false;
+                downloadButton.innerHTML = `Download ${type.toUpperCase()}`;
+            }
+        }
+    }
+
+    function showError(message) {
+        processing.style.display = 'none';
+        const errorDiv = document.createElement('div');
+        errorDiv.className = 'error-message animate-fade-in';
+        errorDiv.innerHTML = `
+            <div class="error-icon">❌</div>
+            <h3>Error</h3>
+            <p>${message}</p>
+            <button class="retry-button" onclick="resetUI()">Try Again</button>
+        `;
+        document.querySelector('.container').appendChild(errorDiv);
+    }
+
+    function resetUI() {
+        document.querySelector('.download-section')?.remove();
+        document.querySelector('.error-message')?.remove();
+        dropZone.style.display = 'flex';
+        processing.style.display = 'none';
         progressFill.style.width = '0%';
         fileInput.value = '';
-        document.querySelectorAll('.step').forEach(step => {
-            step.classList.remove('active');
+        steps.forEach(step => {
+            step.classList.remove('active', 'completed');
         });
     }
 </script>

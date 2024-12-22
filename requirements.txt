@@ -10,3 +10,7 @@ google-genai
 google-generativeai==0.3.2
 docx2pdf==0.1.8
 python-docx==1.1.0
+pydantic==2.5.3
+pydantic-settings==2.1.0
+aiofiles==23.2.1
+slowapi==0.1.8
