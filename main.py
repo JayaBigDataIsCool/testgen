@@ -3,7 +3,7 @@ import json
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Set
 import fitz
 from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks, Request
 from fastapi.staticfiles import StaticFiles
@@ -467,47 +467,247 @@ def pdf_to_images(pdf_path: Path, output_dir: Path) -> List[Path]:
         raise
 
 def generate_excel(results: List[Dict], output_dir: Path) -> Path:
-    """Generate Excel output with test cases"""
+    """Generate Excel output with test cases and requirements"""
     try:
-        # Create a consistent filename
-        excel_path = output_dir / "test_cases.xlsx"  # Simplified filename
+        excel_path = output_dir / "test_cases.xlsx"
         
-        # Prepare data
-        all_test_cases = []
+        # Prepare test cases data
+        test_case_rows = []
+        all_requirements = set()  # To collect all requirements
+        
+        # Group test cases by flow/scenario
         for page in results:
             test_cases = page.get("test_cases", [])
-            all_test_cases.extend(test_cases)
+            e2e_flows = group_test_cases_into_flows(test_cases)
+            
+            for flow in e2e_flows:
+                # Extract requirement IDs from all test cases in the flow
+                all_req_ids = set()
+                for tc in flow:
+                    req_ids = tc.get("requirements_covered", [])
+                    all_req_ids.update(req_ids)
+                    # Collect requirements for the Requirements tab
+                    all_requirements.update(req_ids)
+                req_ids_str = ", ".join(sorted(all_req_ids)) if all_req_ids else ""
+                
+                # Rest of the flow processing remains the same
+                descriptions = []
+                preconditions = set()
+                for tc in flow:
+                    if tc.get("description"):
+                        descriptions.append(tc["description"])
+                    if tc.get("preconditions"):
+                        preconditions.update(tc["preconditions"])
+                
+                base_data = {
+                    "Application Name": "",
+                    "Test Case Priority": flow[0].get("priority", "Low"),
+                    "Test Case Status": "Approved",
+                    "Test Case Type": "Manual",
+                    "Requirement IDs": req_ids_str,
+                    "Test Case Name": f"E2E_{flow[0].get('id', '')}",
+                    "Description": " | ".join(descriptions),
+                    "Pre-Condition": "\n".join(sorted(preconditions))
+                }
+                
+                steps = []
+                step_num = 1
+                
+                for tc in flow:
+                    test_steps = tc.get("test_steps", [])
+                    if test_steps:
+                        for step in test_steps:
+                            steps.append({
+                                "step_num": step_num,
+                                "description": step.get("action", ""),
+                                "expected": step.get("expected_result", "")
+                            })
+                            step_num += 1
+                    elif tc.get("validation_points"):
+                        for point in tc["validation_points"]:
+                            steps.append({
+                                "step_num": step_num,
+                                "description": point.get("what", ""),
+                                "expected": point.get("criteria", "")
+                            })
+                            step_num += 1
+                
+                if not steps:
+                    steps.append({
+                        "step_num": 1,
+                        "description": "",
+                        "expected": ""
+                    })
+                
+                for step in steps:
+                    row_data = base_data.copy()
+                    row_data.update({
+                        "Step #": step["step_num"],
+                        "Step Description": step["description"],
+                        "Expected Result": step["expected"]
+                    })
+                    test_case_rows.append(row_data)
         
-        logger.info(f"Generating Excel with {len(all_test_cases)} test cases")
+        # Prepare requirements data
+        req_rows = []
+        for req_id in sorted(all_requirements):
+            # Find the description and other details for this requirement
+            req_details = find_requirement_details(results, req_id)
+            req_rows.append({
+                "Requirement ID": req_id,
+                "Description": req_details.get("description", ""),
+                "Type": req_details.get("type", "Functional"),  # Default to Functional
+                "Priority": req_details.get("priority", "Medium"),  # Default to Medium
+                "Status": "Approved",  # Default status
+                "Related Test Cases": find_related_test_cases_for_req(test_case_rows, req_id)
+            })
         
-        # Create DataFrame
-        df = pd.DataFrame(all_test_cases)
+        # Create DataFrames
+        test_case_columns = [
+            "Application Name", "Test Case Priority", "Test Case Status", "Test Case Type",
+            "Requirement IDs", "Test Case Name", "Description", "Pre-Condition",
+            "Step #", "Step Description", "Expected Result"
+        ]
+        req_columns = [
+            "Requirement ID", "Description", "Type", "Priority", "Status", "Related Test Cases"
+        ]
+        
+        test_cases_df = pd.DataFrame(test_case_rows, columns=test_case_columns)
+        requirements_df = pd.DataFrame(req_rows, columns=req_columns)
         
         # Write to Excel with formatting
         with pd.ExcelWriter(excel_path, engine='openpyxl') as writer:
-            df.to_excel(writer, sheet_name='Test Cases', index=False)
-            format_excel_sheet(writer.sheets['Test Cases'])
+            # Write Test Cases sheet
+            test_cases_df.to_excel(writer, sheet_name='Test Cases', index=False)
+            format_excel_sheet(writer.sheets['Test Cases'], test_cases_df)
+            
+            # Write Requirements sheet
+            requirements_df.to_excel(writer, sheet_name='Requirements', index=False)
+            format_requirements_sheet(writer.sheets['Requirements'], requirements_df)
                 
-        logger.info(f"Excel file generated: {excel_path}")
+        logger.info(f"Excel file generated with Test Cases and Requirements: {excel_path}")
         return excel_path
         
     except Exception as e:
         logger.error(f"Error generating Excel file: {str(e)}")
         raise
 
-def format_excel_sheet(sheet):
+def format_excel_sheet(sheet, df):
     """Apply formatting to Excel sheet"""
-    for idx, col in enumerate(sheet.columns, 1):
-        sheet.column_dimensions[get_column_letter(idx)].width = 30
+    # Set column widths
+    column_widths = {
+        "Application Name": 20,
+        "Test Case Priority": 15,
+        "Test Case Status": 15,
+        "Test Case Type": 15,
+        "Requirement IDs": 20,
+        "Test Case Name": 30,
+        "Description": 40,
+        "Pre-Condition": 40,
+        "Step #": 10,
+        "Step Description": 50,
+        "Expected Result": 50
+    }
+    
+    # Format headers
+    for idx, col in enumerate(df.columns, 1):
+        col_letter = get_column_letter(idx)
+        sheet.column_dimensions[col_letter].width = column_widths.get(col, 30)
         
-        # Format header
-        header_cell = col[0]
+        header_cell = sheet.cell(row=1, column=idx)
         header_cell.fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
         header_cell.font = Font(color="FFFFFF", bold=True)
+        header_cell.alignment = Alignment(wrap_text=True, vertical='center', horizontal='center')
+    
+    # Format content and merge cells
+    current_test_case = None
+    merge_start_row = 2
+    
+    for row in range(2, sheet.max_row + 1):
+        test_case = sheet.cell(row=row, column=6).value  # Test Case Name column
         
-        # Format content
-        for cell in col[1:]:
+        # Format all cells in the row
+        for col in range(1, sheet.max_column + 1):
+            cell = sheet.cell(row=row, column=col)
             cell.alignment = Alignment(wrap_text=True, vertical='top')
+        
+        # Handle merging for new test case
+        if test_case != current_test_case:
+            if current_test_case is not None and merge_start_row < row:
+                # Merge cells for previous test case (columns A-H)
+                for col in range(1, 9):  # A through H
+                    if row - merge_start_row > 1:  # Only merge if there are multiple rows
+                        sheet.merge_cells(
+                            start_row=merge_start_row,
+                            start_column=col,
+                            end_row=row - 1,
+                            end_column=col
+                        )
+            merge_start_row = row
+            current_test_case = test_case
+    
+    # Handle merging for the last test case
+    if current_test_case is not None and merge_start_row < sheet.max_row:
+        for col in range(1, 9):  # A through H
+            if sheet.max_row - merge_start_row > 0:  # Only merge if there are multiple rows
+                sheet.merge_cells(
+                    start_row=merge_start_row,
+                    start_column=col,
+                    end_row=sheet.max_row,
+                    end_column=col
+                )
+
+def format_requirements_sheet(sheet, df):
+    """Apply formatting to Requirements sheet"""
+    # Set column widths
+    column_widths = {
+        "Requirement ID": 20,
+        "Description": 60,
+        "Type": 15,
+        "Priority": 15,
+        "Status": 15,
+        "Related Test Cases": 40
+    }
+    
+    # Format headers
+    for idx, col in enumerate(df.columns, 1):
+        col_letter = get_column_letter(idx)
+        sheet.column_dimensions[col_letter].width = column_widths.get(col, 30)
+        
+        header_cell = sheet.cell(row=1, column=idx)
+        header_cell.fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
+        header_cell.font = Font(color="FFFFFF", bold=True)
+        header_cell.alignment = Alignment(wrap_text=True, vertical='center', horizontal='center')
+    
+    # Format content
+    for row in range(2, sheet.max_row + 1):
+        for col in range(1, sheet.max_column + 1):
+            cell = sheet.cell(row=row, column=col)
+            cell.alignment = Alignment(wrap_text=True, vertical='top')
+            # Add subtle alternating row colors
+            if row % 2 == 0:
+                cell.fill = PatternFill(start_color="F5F5F5", end_color="F5F5F5", fill_type="solid")
+
+def find_requirement_details(results: List[Dict], req_id: str) -> Dict:
+    """Find requirement details from the results"""
+    for page in results:
+        for test_case in page.get("test_cases", []):
+            if req_id in test_case.get("requirements_covered", []):
+                # Extract requirement details from test case
+                return {
+                    "description": test_case.get("description", ""),
+                    "type": "Functional",  # Default type
+                    "priority": test_case.get("priority", "Medium")
+                }
+    return {}
+
+def find_related_test_cases_for_req(test_case_rows: List[Dict], req_id: str) -> str:
+    """Find all test cases related to a requirement"""
+    related_cases = set()
+    for row in test_case_rows:
+        if req_id in row["Requirement IDs"].split(", "):
+            related_cases.add(row["Test Case Name"])
+    return ", ".join(sorted(related_cases))
 
 def create_session_folders(session_id: str) -> Tuple[Path, Path]:
     """Create session-specific folders for uploads and outputs"""
@@ -710,49 +910,60 @@ async def process_document(
         update_status("failed", f"Processing failed: {str(e)}", 0)
         cleanup_session_files(session_id)
 
-# Update the test case processing function to handle more test cases
-async def process_test_cases(requirements, output_dir):
-    all_test_cases = []
+def group_test_cases_into_flows(test_cases: List[Dict]) -> List[List[Dict]]:
+    """Group related test cases into E2E flows based on requirements and logic flow"""
+    if not test_cases:
+        return []
+        
+    flows = []
+    used_cases = set()
     
-    for req in requirements:
-        # Create content for test case generation
-        content = {
-            "contents": [{
-                "role": "user",
-                "parts": [{
-                    "text": f"{test_case_generation_prompt}\n\nRequirement:\n{json.dumps(req, indent=2)}"
-                }]
-            }]
-        }
-
-        try:
-            response = client.models.generate_content(
-                model="gemini-2.0-flash-exp",
-                **content,
-                config=GenerateContentConfig(
-                    temperature=0.7,  # Increased slightly for more variety
-                    max_output_tokens=2000  # Increased for more detailed output
-                )
-            )
-            
-            if response and response.text:
-                # Extract JSON from response
-                json_match = re.search(r'\{[\s\S]*\}', response.text)
-                if json_match:
-                    test_cases = json.loads(json_match.group(0))
-                    if "test_cases" in test_cases:
-                        all_test_cases.extend(test_cases["test_cases"])
-                        
-        except Exception as e:
-            logger.error(f"Error generating test cases for requirement {req['req_id']}: {str(e)}")
+    for tc in test_cases:
+        if tc.get("id") in used_cases:
             continue
+            
+        # Start a new flow
+        current_flow = [tc]
+        used_cases.add(tc.get("id"))
+        
+        # Find related test cases
+        related_cases = find_related_test_cases(tc, test_cases, used_cases)
+        current_flow.extend(related_cases)
+        for related_tc in related_cases:
+            used_cases.add(related_tc.get("id"))
+        
+        flows.append(current_flow)
+    
+    return flows
 
-    # Save all test cases to JSON
-    test_cases_file = os.path.join(output_dir, "test_cases.json")
-    with open(test_cases_file, "w") as f:
-        json.dump({"test_cases": all_test_cases}, f, indent=2)
-
-    return all_test_cases
+def find_related_test_cases(base_case: Dict, all_cases: List[Dict], used_cases: Set[str]) -> List[Dict]:
+    """Find test cases related to the base case based on various criteria"""
+    related = []
+    
+    # Get base case attributes for comparison
+    base_reqs = set(base_case.get("requirements_covered", []))
+    base_id = base_case.get("id", "")
+    
+    # Extract sequence number if ID follows pattern TC_P{page}_{seq}
+    base_seq = int(base_id.split("_")[-1]) if base_id and base_id.split("_")[-1].isdigit() else 0
+    
+    for tc in all_cases:
+        if tc.get("id") in used_cases:
+            continue
+            
+        tc_id = tc.get("id", "")
+        tc_reqs = set(tc.get("requirements_covered", []))
+        
+        # Check if test cases are related based on:
+        # 1. Shared requirements
+        # 2. Sequential IDs
+        # 3. Related descriptions or preconditions
+        if (tc_reqs & base_reqs or  # Shared requirements
+            (tc_id and tc_id.split("_")[-1].isdigit() and 
+             int(tc_id.split("_")[-1]) == base_seq + 1)):  # Sequential ID
+            related.append(tc)
+    
+    return related
 
 if __name__ == "__main__":
     import uvicorn
